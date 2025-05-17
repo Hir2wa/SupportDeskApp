@@ -1,4 +1,4 @@
-    package Controller;
+package Controller;
 
 import model.Issue;
 import model.Comment;
@@ -22,7 +22,7 @@ public class IssueController {
 
     // Post new issue
     public boolean postIssue(Issue issue, int userId) {
-                try (Session session = sessionFactory.openSession()) {
+        try (Session session = sessionFactory.openSession()) {
             Transaction tx = session.beginTransaction();
             User user = session.get(User.class, userId);
             if (user == null) {
@@ -50,8 +50,9 @@ public class IssueController {
             // Set like counts for GUI compatibility
             for (Issue issue : issues) {
                 Query<Like> likeQuery = session.createQuery(
-                    "FROM Like WHERE issue.id = :issueId AND reactionType = 'like'", Like.class);
+                    "FROM Like WHERE issue.id = :issueId AND reactionType = :reactionType", Like.class);
                 likeQuery.setParameter("issueId", issue.getId());
+                likeQuery.setParameter("reactionType", Like.ReactionType.LIKE);
                 issue.setLikes(likeQuery.getResultList());
             }
         } catch (Exception e) {
@@ -63,14 +64,14 @@ public class IssueController {
 
     // Get issue by ID
     public Issue getIssueById(int issueId) {
-        
         try (Session session = sessionFactory.openSession()) {
             Issue issue = session.get(Issue.class, issueId);
             if (issue != null) {
                 // Set like count for GUI compatibility
                 Query<Like> likeQuery = session.createQuery(
-                    "FROM Like WHERE issue.id = :issueId AND reactionType = 'like'", Like.class);
+                    "FROM Like WHERE issue.id = :issueId AND reactionType = :reactionType", Like.class);
                 likeQuery.setParameter("issueId", issueId);
+                likeQuery.setParameter("reactionType", Like.ReactionType.LIKE);
                 issue.setLikes(likeQuery.getResultList());
                 System.out.println("✅ Found issue: ID=" + issueId);
             } else {
@@ -151,7 +152,6 @@ public class IssueController {
                 System.out.println("❌ Issue not found: ID=" + issueId);
                 return false;
             }
-            // Hibernate cascades deletes for comments and likes (ON DELETE CASCADE in schema)
             session.remove(issue);
             tx.commit();
             System.out.println("✅ Issue deleted: ID=" + issueId);
@@ -167,9 +167,10 @@ public class IssueController {
     public boolean hasUserLikedIssue(int userId, int issueId) {
         try (Session session = sessionFactory.openSession()) {
             Query<Long> query = session.createQuery(
-                "SELECT COUNT(*) FROM Like WHERE user.id = :userId AND issue.id = :issueId AND reactionType = 'like'", Long.class);
+                "SELECT COUNT(*) FROM Like WHERE user.id = :userId AND issue.id = :issueId AND reactionType = :reactionType", Long.class);
             query.setParameter("userId", userId);
             query.setParameter("issueId", issueId);
+            query.setParameter("reactionType", Like.ReactionType.LIKE);
             return query.uniqueResult() > 0;
         } catch (Exception e) {
             System.out.println("⚠️ Error checking like status");
@@ -182,9 +183,10 @@ public class IssueController {
     public boolean hasUserDislikedIssue(int userId, int issueId) {
         try (Session session = sessionFactory.openSession()) {
             Query<Long> query = session.createQuery(
-                "SELECT COUNT(*) FROM Like WHERE user.id = :userId AND issue.id = :issueId AND reactionType = 'dislike'", Long.class);
+                "SELECT COUNT(*) FROM Like WHERE user.id = :userId AND issue.id = :issueId AND reactionType = :reactionType", Long.class);
             query.setParameter("userId", userId);
             query.setParameter("issueId", issueId);
+            query.setParameter("reactionType", Like.ReactionType.DISLIKE);
             return query.uniqueResult() > 0;
         } catch (Exception e) {
             System.out.println("⚠️ Error checking dislike status");
@@ -197,8 +199,9 @@ public class IssueController {
     public int getLikeCount(int issueId) {
         try (Session session = sessionFactory.openSession()) {
             Query<Long> query = session.createQuery(
-                "SELECT COUNT(*) FROM Like WHERE issue.id = :issueId AND reactionType = 'like'", Long.class);
+                "SELECT COUNT(*) FROM Like WHERE issue.id = :issueId AND reactionType = :reactionType", Long.class);
             query.setParameter("issueId", issueId);
+            query.setParameter("reactionType", Like.ReactionType.LIKE);
             return query.uniqueResult().intValue();
         } catch (Exception e) {
             System.out.println("⚠️ Error counting likes");
@@ -211,8 +214,9 @@ public class IssueController {
     public int getDislikeCount(int issueId) {
         try (Session session = sessionFactory.openSession()) {
             Query<Long> query = session.createQuery(
-                "SELECT COUNT(*) FROM Like WHERE issue.id = :issueId AND reactionType = 'dislike'", Long.class);
+                "SELECT COUNT(*) FROM Like WHERE issue.id = :issueId AND reactionType = :reactionType", Long.class);
             query.setParameter("issueId", issueId);
+            query.setParameter("reactionType", Like.ReactionType.DISLIKE);
             return query.uniqueResult().intValue();
         } catch (Exception e) {
             System.out.println("⚠️ Error counting dislikes");
@@ -221,115 +225,65 @@ public class IssueController {
         }
     }
 
-    // Add a like to an issue if not already liked
-    public boolean likeIssue(Like like, int userId) {
+    // Add or remove a like/dislike
+    public boolean likeIssue(int userId, int issueId, Like.ReactionType reactionType) {
+        if (issueId <= 0 || userId <= 0) {
+            System.err.println("❌ Invalid userId or issueId: UserID=" + userId + ", IssueID=" + issueId);
+            return false;
+        }
+
         try (Session session = sessionFactory.openSession()) {
             Transaction tx = session.beginTransaction();
-            if (hasUserLikedIssue(userId, like.getId())) {
-                System.out.println("❌ User already liked Issue ID: " + like.getId());
-                return false;
-            }
-            // Remove existing dislike if present
-            Query<?> deleteQuery = session.createQuery(
-                "DELETE FROM Like WHERE user.id = :userId AND issue.id = :issueId");
-            deleteQuery.setParameter("userId", userId);
-            deleteQuery.setParameter("issueId", like.getId());
-            deleteQuery.executeUpdate();
-            // Add like
             User user = session.get(User.class, userId);
-            Issue issue = session.get(Issue.class, like.getId());
+            Issue issue = session.get(Issue.class, issueId);
+
             if (user == null || issue == null) {
-                System.out.println("❌ User or Issue not found: UserID=" + userId + ", IssueID=" + issue.getId());
+                System.err.println("❌ User or Issue not found: UserID=" + userId + ", IssueID=" + issueId);
+                if (tx.isActive()) tx.rollback();
                 return false;
             }
-            Like newLike = new Like(user, issue);
-            newLike.setReactionType("like");
-            session.persist(newLike);
+
+            // Check for existing like/dislike
+            Query<Like> existingQuery = session.createQuery(
+                "FROM Like l WHERE l.user.id = :userId AND l.issue.id = :issueId",
+                Like.class
+            );
+            existingQuery.setParameter("userId", userId);
+            existingQuery.setParameter("issueId", issueId);
+            Like existingLike = existingQuery.uniqueResult();
+
+            if (reactionType == null) {
+                // Remove existing like/dislike
+                if (existingLike != null) {
+                    session.delete(existingLike);
+                    tx.commit();
+                    System.out.println("✅ Removed like/dislike for Issue ID: " + issueId + " by User ID: " + userId);
+                    return true;
+                }
+                if (tx.isActive()) tx.rollback();
+                return false; // Nothing to remove
+            }
+
+            if (existingLike != null) {
+                if (existingLike.getReactionType() == reactionType) {
+                    if (tx.isActive()) tx.rollback();
+                    System.out.println("❌ User already " + reactionType + "d Issue ID: " + issueId);
+                    return false; // Already liked/disliked with same reaction
+                }
+                // Update existing like to new reaction type
+                existingLike.setReactionType(reactionType);
+                session.update(existingLike);
+            } else {
+                // Add new like/dislike
+                Like like = new Like(user, issue, reactionType);
+                session.save(like);
+            }
+
             tx.commit();
-            System.out.println("✅ Like added to Issue ID: " + like.getId());
+            System.out.println("✅ Added/Updated " + reactionType + " for Issue ID: " + issueId + " by User ID: " + userId);
             return true;
         } catch (Exception e) {
-            System.out.println("⚠️ Error adding like");
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    // Add a dislike to an issue if not already disliked
-    public boolean dislikeIssue(Like like, int userId) {
-        try (Session session = sessionFactory.openSession()) {
-            Transaction tx = session.beginTransaction();
-            if (hasUserDislikedIssue(userId, like.getId())) {
-                System.out.println("❌ User already disliked Issue ID: " + like.getId());
-                return false;
-            }
-            // Remove existing like if present
-            Query<?> deleteQuery = session.createQuery(
-                "DELETE FROM Like WHERE user.id = :userId AND issue.id = :issueId");
-            deleteQuery.setParameter("userId", userId);
-            deleteQuery.setParameter("issueId", like.getId());
-            deleteQuery.executeUpdate();
-            // Add dislike
-            User user = session.get(User.class, userId);
-            Issue issue = session.get(Issue.class, like.getId());
-            if (user == null || issue == null) {
-                System.out.println("❌ User or Issue not found: UserID=" + userId + ", IssueID=" + like.getId());
-                return false;
-            }
-            Like newLike = new Like(user, issue);
-            newLike.setReactionType("dislike");
-            session.persist(newLike);
-            tx.commit();
-            System.out.println("✅ Dislike added to Issue ID: " + like.getId());
-            return true;
-        } catch (Exception e) {
-            System.out.println("⚠️ Error adding dislike");
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    // Remove a dislike from an issue
-    public boolean undislikeIssue(int userId, int issueId) {
-        try (Session session = sessionFactory.openSession()) {
-            Transaction tx = session.beginTransaction();
-            Query<?> query = session.createQuery(
-                "DELETE FROM Like WHERE user.id = :userId AND issue.id = :issueId AND reactionType = 'dislike'");
-            query.setParameter("userId", userId);
-            query.setParameter("issueId", issueId);
-            int rowsAffected = query.executeUpdate();
-            tx.commit();
-            if (rowsAffected > 0) {
-                System.out.println("✅ Dislike removed from Issue ID: " + issueId);
-            } else {
-                System.out.println("❌ No dislike found to remove for Issue ID: " + issueId);
-            }
-            return rowsAffected > 0;
-        } catch (Exception e) {
-            System.out.println("⚠️ Error removing dislike");
-            e.printStackTrace();
-            return false;
-        }
-    }
-
-    // Remove a like from an issue
-    public boolean unlikeIssue(int userId, int issueId) {
-        try (Session session = sessionFactory.openSession()) {
-            Transaction tx = session.beginTransaction();
-            Query<?> query = session.createQuery(
-                "DELETE FROM Like WHERE user.id = :userId AND issue.id = :issueId AND reactionType = 'like'");
-            query.setParameter("userId", userId);
-            query.setParameter("issueId", issueId);
-            int rowsAffected = query.executeUpdate();
-            tx.commit();
-            if (rowsAffected > 0) {
-                System.out.println("✅ Like removed from Issue ID: " + issueId);
-            } else {
-                System.out.println("❌ No like found to remove for Issue ID: " + issueId);
-            }
-            return rowsAffected > 0;
-        } catch (Exception e) {
-            System.out.println("⚠️ Error removing like");
+            System.err.println("❌ Error adding/removing " + reactionType + ": " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -353,8 +307,9 @@ public class IssueController {
     public int countLikesReceivedByUserId(int userId) {
         try (Session session = sessionFactory.openSession()) {
             Query<Long> query = session.createQuery(
-                "SELECT COUNT(l) FROM Like l JOIN l.issue i WHERE i.user.id = :userId AND l.reactionType = 'like'", Long.class);
+                "SELECT COUNT(l) FROM Like l JOIN l.issue i WHERE i.user.id = :userId AND l.reactionType = :reactionType", Long.class);
             query.setParameter("userId", userId);
+            query.setParameter("reactionType", Like.ReactionType.LIKE);
             return query.uniqueResult().intValue();
         } catch (Exception e) {
             System.out.println("⚠️ Error counting likes");
@@ -398,17 +353,24 @@ public class IssueController {
         try (Session session = sessionFactory.openSession()) {
             String pattern = "%" + searchQuery + "%";
             Query<Object[]> query = session.createQuery(
-                "SELECT i, l FROM Issue i LEFT JOIN Like l ON i.id = l.issue.id AND l.reactionType = 'like' " +
+                "SELECT i, l FROM Issue i LEFT JOIN Like l ON i.id = l.issue.id AND l.reactionType = :reactionType " +
                 "WHERE i.title ILIKE :pattern OR i.description ILIKE :pattern OR CAST(i.id AS string) = :searchQuery ", Object[].class);
+            query.setParameter("reactionType", Like.ReactionType.LIKE);
             query.setParameter("pattern", pattern);
             query.setParameter("searchQuery", searchQuery);
             List<Object[]> resultList = query.getResultList();
             for (Object[] row : resultList) {
                 Issue issue = (Issue) row[0];
-                List<Like> likes = (List<Like>) row[1];
+                Like like = (Like) row[1];
+                List<Like> likes = issue.getLikes() != null ? issue.getLikes() : new ArrayList<>();
+                if (like != null && !likes.contains(like)) {
+                    likes.add(like);
+                }
                 issue.setLikes(likes);
-                results.add(issue);
-                System.out.println("Found issue: " + issue.getTitle() + " with " + issue.getLikes().size() + " likes");
+                if (!results.contains(issue)) {
+                    results.add(issue);
+                    System.out.println("Found issue: " + issue.getTitle() + " with " + likes.size() + " likes");
+                }
             }
             System.out.println("Total issues found: " + results.size());
         } catch (Exception e) {

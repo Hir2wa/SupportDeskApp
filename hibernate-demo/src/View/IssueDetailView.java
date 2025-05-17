@@ -9,7 +9,6 @@ import Controller.UserController;
 import model.Issue;
 import model.Comment;
 import model.User;
-import model.Like;
 
 public class IssueDetailView {
     private JFrame detailFrame;
@@ -19,6 +18,7 @@ public class IssueDetailView {
     private int userId;
     private JTextArea commentField;
     private JPanel commentsPanel;
+    private Color primaryColor = new Color(0, 102, 204); // Match HomePageView
 
     public IssueDetailView(Issue issue, int currentUserId) {
         this.issue = issue;
@@ -26,8 +26,14 @@ public class IssueDetailView {
         this.issueController = new IssueController();
         this.userController = new UserController();
         
+        // Validate issue
+        if (issue == null || issue.getId() <= 0) {
+            System.err.println("IssueDetailView: Invalid issue: " + (issue == null ? "null" : "id=" + issue.getId()));
+        }
+        System.out.println("IssueDetailView: issue=" + (issue != null ? issue.getId() + ", " + issue.getTitle() : "null") + ", userId=" + userId);
+
         // Create and set up the frame
-        detailFrame = new JFrame("Issue: " + issue.getTitle());
+        detailFrame = new JFrame("Issue: " + (issue != null ? issue.getTitle() : "Invalid Issue"));
         detailFrame.setSize(800, 600);
         detailFrame.setLocationRelativeTo(null);
         detailFrame.setLayout(new BorderLayout());
@@ -58,11 +64,11 @@ public class IssueDetailView {
         
         // Title and status
         JPanel titlePanel = new JPanel(new BorderLayout());
-        JLabel titleLabel = new JLabel(issue.getTitle());
+        JLabel titleLabel = new JLabel(issue != null ? issue.getTitle() : "Invalid Issue");
         titleLabel.setFont(new Font("Arial", Font.BOLD, 20));
         
-        JLabel statusLabel = new JLabel("Status: " + issue.getStatus());
-        statusLabel.setForeground(getStatusColor(issue.getStatus()));
+        JLabel statusLabel = new JLabel("Status: " + (issue != null ? issue.getStatus() : "Unknown"));
+        statusLabel.setForeground(getStatusColor(issue != null ? issue.getStatus() : ""));
         statusLabel.setFont(new Font("Arial", Font.BOLD, 14));
         
         titlePanel.add(titleLabel, BorderLayout.WEST);
@@ -70,15 +76,16 @@ public class IssueDetailView {
         titlePanel.setOpaque(false);
         
         // Creator info
-        User creator = userController.getUserById(issue.getUserId());
+        User creator = issue != null ? userController.getUserById(issue.getUserId()) : null;
         String creatorName = (creator != null) ? creator.getUsername() : "Unknown";
+        String createdAt = issue != null ? issue.getCreatedAt().toString() : "Unknown";
         
-        JLabel creatorLabel = new JLabel("Posted by: " + creatorName + " on " + issue.getCreatedAt());
+        JLabel creatorLabel = new JLabel("Posted by: " + creatorName + " on " + createdAt);
         creatorLabel.setFont(new Font("Arial", Font.PLAIN, 12));
         creatorLabel.setForeground(Color.GRAY);
         
         // Description
-        JTextArea descriptionArea = new JTextArea(issue.getDescription());
+        JTextArea descriptionArea = new JTextArea(issue != null ? issue.getDescription() : "No description available");
         descriptionArea.setWrapStyleWord(true);
         descriptionArea.setLineWrap(true);
         descriptionArea.setEditable(false);
@@ -87,58 +94,190 @@ public class IssueDetailView {
         descriptionArea.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
         
         // Reactions
-        JPanel reactionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel reactionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         reactionsPanel.setOpaque(false);
         
-        JButton likeButton = new JButton("👍 " + issueController.getLikeCount(issue.getId()));
-        likeButton.setFocusPainted(false);
-        
-        JButton dislikeButton = new JButton("👎 " + issueController.getDislikeCount(issue.getId()));
-        dislikeButton.setFocusPainted(false);
-        
-        reactionsPanel.add(likeButton);
-        reactionsPanel.add(dislikeButton);
-        
-        // Add action listeners for reaction buttons
+        JButton likeButton = createStyledButton("Like 👍", primaryColor);
+        JButton dislikeButton = createStyledButton("Dislike 👎", new Color(150, 150, 150));
+        JButton reportButton = createStyledButton("Report ⚠️", new Color(220, 53, 69));
+
+        int initialLikeCount = issue != null ? issueController.getLikeCount(issue.getId()) : 0;
+        int initialDislikeCount = issue != null ? issueController.getDislikeCount(issue.getId()) : 0;
+
+        boolean hasLiked = issue != null && issueController.hasUserLikedIssue(userId, issue.getId());
+        boolean hasDisliked = issue != null && issueController.hasUserDislikedIssue(userId, issue.getId());
+
+        JLabel likeLabel = new JLabel(initialLikeCount + " Likes");
+        likeLabel.setFont(new Font("Arial", Font.BOLD, 12));
+
+        JLabel dislikeLabel = new JLabel(initialDislikeCount + " Dislikes");
+        dislikeLabel.setFont(new Font("Arial", Font.BOLD, 12));
+
+        final boolean[] liked = {hasLiked};
+        final boolean[] disliked = {hasDisliked};
+        final int[] likeCount = {initialLikeCount};
+        final int[] dislikeCount = {initialDislikeCount};
+
+        if (liked[0]) {
+            likeButton.setText("Unlike 👍");
+            likeButton.setBackground(primaryColor);
+            likeButton.setForeground(Color.WHITE);
+        } else {
+            likeButton.setBackground(new Color(240, 240, 240));
+            likeButton.setForeground(new Color(60, 60, 60));
+        }
+
+        if (disliked[0]) {
+            dislikeButton.setText("Undislike 👎");
+            dislikeButton.setBackground(primaryColor);
+            dislikeButton.setForeground(Color.WHITE);
+        } else {
+            dislikeButton.setBackground(new Color(240, 240, 240));
+            dislikeButton.setForeground(new Color(60, 60, 60));
+        }
+
+        reportButton.setBackground(new Color(240, 240, 240));
+        reportButton.setForeground(new Color(60, 60, 60));
+        reportButton.setFont(new Font("Arial", Font.PLAIN, 12));
+
         likeButton.addActionListener(e -> {
-            if (!issueController.hasUserLikedIssue(userId, issue.getId())) {
-                String username = userController.getUserById(userId).getUsername();
-        
-                Like like = new Like();
-                like.setIssue(issue);
-                like.setUser(userController.getUserById(userId));
-                like.setReactionType("like");
-        
-                issueController.likeIssue(like, userId);
-        
-                likeButton.setText("👍 " + issueController.getLikeCount(issue.getId()));
-                dislikeButton.setText("👎 " + issueController.getDislikeCount(issue.getId()));
-            } else {
-                JOptionPane.showMessageDialog(detailFrame, "You've already liked this issue.");
-            }
-        });
-        
-        
-        dislikeButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (!issueController.hasUserDislikedIssue(userId, issue.getId())) {
-                    String username = userController.getUserById(userId).getUsername();
-                    Like like = new Like();
-                    like.setIssue(issue);
-                    like.setUser(userController.getUserById(userId));
-                    like.setReactionType("dislike");
-                    issueController.dislikeIssue(like, userId);
-        
-                    likeButton.setText("👍 " + issueController.getLikeCount(issue.getId()));
-                    dislikeButton.setText("👎 " + issueController.getDislikeCount(issue.getId()));
-                } else {
-                    JOptionPane.showMessageDialog(detailFrame, "You've already disliked this issue.");
+            try {
+                System.out.println("Like button clicked: userId=" + userId + ", issueId=" + (issue != null ? issue.getId() : "null") + ", issueTitle=" + (issue != null ? issue.getTitle() : "null"));
+                if (issue == null || issue.getId() <= 0 || userId <= 0) {
+                    JOptionPane.showMessageDialog(detailFrame, 
+                        "Invalid issue or user.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
                 }
+
+                if (!liked[0]) {
+                    boolean success = issueController.likeIssue(userId, issue.getId(), model.Like.ReactionType.LIKE);
+                    if (success) {
+                        likeCount[0]++;
+                        liked[0] = true;
+                        likeButton.setText("Unlike 👍");
+                        likeButton.setBackground(primaryColor);
+                        likeButton.setForeground(Color.WHITE);
+                        if (disliked[0]) {
+                            dislikeCount[0]--;
+                            disliked[0] = false;
+                            dislikeButton.setText("Dislike 👎");
+                            dislikeButton.setBackground(new Color(240, 240, 240));
+                            dislikeButton.setForeground(new Color(60, 60, 60));
+                            dislikeLabel.setText(dislikeCount[0] + " Dislikes");
+                        }
+                        likeLabel.setText(likeCount[0] + " Likes");
+                    } else {
+                        JOptionPane.showMessageDialog(detailFrame, 
+                            "Failed to like issue. You may have already liked it.", 
+                            "Notice", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } else {
+                    boolean success = issueController.likeIssue(userId, issue.getId(), null); // Remove like
+                    if (success) {
+                        likeCount[0]--;
+                        liked[0] = false;
+                        likeButton.setText("Like 👍");
+                        likeButton.setBackground(new Color(240, 240, 240));
+                        likeButton.setForeground(new Color(60, 60, 60));
+                        likeLabel.setText(likeCount[0] + " Likes");
+                    } else {
+                        JOptionPane.showMessageDialog(detailFrame, 
+                            "Failed to unlike issue. Please try again.", 
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(detailFrame, 
+                    "Error: " + ex.getMessage(), 
+                    "Like Error", JOptionPane.ERROR_MESSAGE);
             }
         });
-        
-        
+
+        dislikeButton.addActionListener(e -> {
+            try {
+                System.out.println("Dislike button clicked: userId=" + userId + ", issueId=" + (issue != null ? issue.getId() : "null") + ", issueTitle=" + (issue != null ? issue.getTitle() : "null"));
+                if (issue == null || issue.getId() <= 0 || userId <= 0) {
+                    JOptionPane.showMessageDialog(detailFrame, 
+                        "Invalid issue or user.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                if (!disliked[0]) {
+                    boolean success = issueController.likeIssue(userId, issue.getId(), model.Like.ReactionType.DISLIKE);
+                    if (success) {
+                        dislikeCount[0]++;
+                        disliked[0] = true;
+                        dislikeButton.setText("Undislike 👎");
+                        dislikeButton.setBackground(primaryColor);
+                        dislikeButton.setForeground(Color.WHITE);
+                        if (liked[0]) {
+                            likeCount[0]--;
+                            liked[0] = false;
+                            likeButton.setText("Like 👍");
+                            likeButton.setBackground(new Color(240, 240, 240));
+                            likeButton.setForeground(new Color(60, 60, 60));
+                            likeLabel.setText(likeCount[0] + " Likes");
+                        }
+                        dislikeLabel.setText(dislikeCount[0] + " Dislikes");
+                    } else {
+                        JOptionPane.showMessageDialog(detailFrame, 
+                            "Failed to dislike issue. You may have already disliked it.", 
+                            "Notice", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } else {
+                    boolean success = issueController.likeIssue(userId, issue.getId(), null); // Remove dislike
+                    if (success) {
+                        dislikeCount[0]--;
+                        disliked[0] = false;
+                        dislikeButton.setText("Dislike 👎");
+                        dislikeButton.setBackground(new Color(240, 240, 240));
+                        dislikeButton.setForeground(new Color(60, 60, 60));
+                        dislikeLabel.setText(dislikeCount[0] + " Dislikes");
+                    } else {
+                        JOptionPane.showMessageDialog(detailFrame, 
+                            "Failed to remove dislike. Please try again.", 
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(detailFrame, 
+                    "Error: " + ex.getMessage(), 
+                    "Dislike Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        // Note: reportController is not defined in this class. Assuming it's available or handled elsewhere.
+        // If reportController is defined, uncomment and adjust:
+        /*
+        reportButton.addActionListener(e -> {
+            System.out.println("Report button clicked: userId=" + userId + ", issueId=" + (issue != null ? issue.getId() : "null") + ", issueTitle=" + (issue != null ? issue.getTitle() : "null"));
+            if (issue == null || issue.getId() <= 0 || userId <= 0) {
+                JOptionPane.showMessageDialog(detailFrame, 
+                    "Invalid issue or user.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (reportController.hasUserReportedIssue(userId, issue.getId())) {
+                JOptionPane.showMessageDialog(detailFrame, 
+                    "You have already reported this issue.", 
+                    "Notice", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            showReportDialog(issue.getId(), null);
+        });
+        */
+
+        reactionsPanel.add(likeButton);
+        reactionsPanel.add(likeLabel);
+        reactionsPanel.add(Box.createRigidArea(new Dimension(10, 0)));
+        reactionsPanel.add(dislikeButton);
+        reactionsPanel.add(dislikeLabel);
+        reactionsPanel.add(Box.createRigidArea(new Dimension(10, 0)));
+        // reactionsPanel.add(reportButton); // Uncomment if reportController is added
         
         // Assemble the details panel
         panel.add(titlePanel, BorderLayout.NORTH);
@@ -179,7 +318,7 @@ public class IssueDetailView {
     private void loadComments() {
         commentsPanel.removeAll();
         
-        List<Comment> comments = issueController.getCommentsForIssue(issue.getId());
+        List<Comment> comments = issue != null ? issueController.getCommentsForIssue(issue.getId()) : List.of();
         
         if (comments.isEmpty()) {
             JLabel noCommentsLabel = new JLabel("No comments yet. Be the first to comment!");
@@ -249,7 +388,7 @@ public class IssueDetailView {
         scrollPane.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
         
         JButton postButton = new JButton("Post Comment");
-        postButton.setBackground(new Color(0, 102, 204));
+        postButton.setBackground(primaryColor);
         postButton.setForeground(Color.WHITE);
         postButton.setFocusPainted(false);
         
@@ -296,6 +435,7 @@ public class IssueDetailView {
     }
     
     private Color getStatusColor(String status) {
+        if (status == null) return Color.BLACK;
         switch (status.toLowerCase()) {
             case "open":
                 return new Color(0, 150, 0);  // Green
@@ -306,5 +446,14 @@ public class IssueDetailView {
             default:
                 return Color.BLACK;
         }
+    }
+    
+    private JButton createStyledButton(String text, Color bgColor) {
+        JButton button = new JButton(text);
+        button.setBackground(bgColor);
+        button.setForeground(Color.WHITE);
+        button.setFont(new Font("Arial", Font.PLAIN, 12));
+        button.setFocusPainted(false);
+        return button;
     }
 }
