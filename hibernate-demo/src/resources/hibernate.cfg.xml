@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE hibernate-configuration PUBLIC
+    "-//Hibernate/Hibernate Configuration DTD 3.0//EN"
+    "http://www.hibernate.org/dtd/hibernate-configuration-3.0.dtd">
+<hibernate-configuration>
+    <session-factory>
+        <!-- Connection properties -->
+        <property name="hibernate.connection.driver_class">org.postgresql.Driver</property>
+        <property name="hibernate.connection.url">jdbc:postgresql://localhost:5432/support_desk</property>
+        <property name="hibernate.connection.username">postgres</property>
+        <property name="hibernate.connection.password">2003</property>
+        <property name="hibernate.dialect">org.hibernate.dialect.PostgreSQLDialect</property>
+        <!-- Schema generation -->
+        <property name="hibernate.hbm2ddl.auto">update</property>
+        <!-- SQL logging -->
+        <property name="hibernate.show_sql">true</property>
+        <property name="hibernate.format_sql">true</property>
+        <!-- C3P0 connection pooling -->
+        <property name="hibernate.c3p0.min_size">5</property>
+        <property name="hibernate.c3p0.max_size">20</property>
+        <property name="hibernate.c3p0.timeout">300</property>
+        <property name="hibernate.c3p0.max_statements">50</property>
+        <property name="hibernate.c3p0.idle_test_period">3000</property>
+        <!-- Session context management -->
+        <property name="hibernate.current_session_context_class">thread</property>
+        <!-- Entity mappings -->
+        <mapping class="model.User"/>
+        <mapping class="model.Issue"/>
+        <mapping class="model.Comment"/>
+        <mapping class="model.Like"/>
+        <mapping class="model.Notice"/>
+        <mapping class="model.Report"/>
+        <mapping class="model.Notification"/>
+    </session-factory>
+</hibernate-configuration>
