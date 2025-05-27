@@ -26,12 +26,23 @@ public class NoticeController {
                 System.out.println("❌ User not found: ID=" + userId);
                 return false;
             }
-            notice.setPostedBy(user);  // Changed from setCreatedBy to setPostedBy
+            // Validate notice fields
+            if (notice.getContent() == null || notice.getContent().trim().isEmpty()) {
+                System.out.println("❌ Invalid notice: content is null or empty");
+                return false;
+            }
+            if (notice.getTitle() == null || notice.getTitle().trim().isEmpty()) {
+                System.out.println("❌ Invalid notice: title is null or empty");
+                return false;
+            }
+            notice.setPostedBy(user);
+            System.out.println("✅ Saving notice: " + notice.toString());
             session.persist(notice);
             tx.commit();
             System.out.println("✅ Notice created: " + notice.getTitle() + " by User ID: " + userId);
             return true;
         } catch (Exception e) {
+          
             System.out.println("⚠️ Error creating notice: " + e.getMessage());
             e.printStackTrace();
             return false;
@@ -75,6 +86,15 @@ public class NoticeController {
                 System.out.println("❌ Notice not found: ID=" + notice.getId());
                 return false;
             }
+            // Validate fields
+            if (notice.getContent() == null || notice.getContent().trim().isEmpty()) {
+                System.out.println("❌ Invalid notice: content is null or empty");
+                return false;
+            }
+            if (notice.getTitle() == null || notice.getTitle().trim().isEmpty()) {
+                System.out.println("❌ Invalid notice: title is null or empty");
+                return false;
+            }
             existing.setTitle(notice.getTitle());
             existing.setContent(notice.getContent());
             session.merge(existing);
@@ -111,7 +131,7 @@ public class NoticeController {
         List<Notice> notices = new ArrayList<>();
         try (Session session = sessionFactory.openSession()) {
             Query<Notice> query = session.createQuery(
-                "FROM Notice WHERE createdBy.id = :userId ORDER BY createdAt DESC", Notice.class);
+                "FROM Notice WHERE postedBy.id = :userId ORDER BY createdAt DESC", Notice.class);
             query.setParameter("userId", userId);
             notices = query.getResultList();
             System.out.println("✅ Fetched " + notices.size() + " notices for User ID: " + userId);

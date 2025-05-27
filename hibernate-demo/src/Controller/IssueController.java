@@ -9,6 +9,9 @@ import org.hibernate.SessionFactory;
 import org.hibernate.Transaction;
 import org.hibernate.query.Query;
 import util.HibernateUtil;
+
+import java.security.Timestamp;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,17 +33,57 @@ public class IssueController {
                 return false;
             }
             issue.setUser(user);
-            session.persist(issue);
-            tx.commit();
-            System.out.println("✅ Issue posted: " + issue.getTitle() + " by User ID: " + userId);
-            return true;
+
+            // Validate non-nullable fields
+            if (issue.getTitle() == null || issue.getTitle().isEmpty()) {
+                System.out.println("❌ Invalid issue: title is required");
+                return false;
+            }
+            if (issue.getDescription() == null || issue.getDescription().isEmpty()) {
+                System.out.println("❌ Invalid issue: description is required");
+                return false;
+            }
+            if (issue.getStatus() == null || issue.getStatus().isEmpty()) {
+                issue.setStatus("OPEN");
+                System.out.println("⚠️ Status was null; set to default: OPEN");
+            }
+
+            // Log Issue state
+            System.out.println("Issue ID: " + issue.getId() + 
+                ", Title: " + issue.getTitle() + 
+                ", Status: " + issue.getStatus() + 
+                ", User ID: " + userId);
+
+            // Set timestamps
+            if (issue.getCreatedAt() == null) {
+                issue.setCreatedAt(new java.sql.Timestamp(System.currentTimeMillis()));
+            }
+            issue.setUpdatedAt(new java.sql.Timestamp(System.currentTimeMillis()));
+
+            try {
+                if (issue.getId() == null) {
+                    session.persist(issue);
+                    System.out.println("✅ New issue persisted: " + issue.getTitle());
+                } else {
+                    Issue mergedIssue = (Issue) session.merge(issue);
+                    issue.setId(mergedIssue.getId());
+                    System.out.println("✅ Issue merged: " + issue.getTitle());
+                }
+                tx.commit();
+                System.out.println("✅ Issue posted: " + issue.getTitle() + " by User ID: " + userId);
+                return true;
+            } catch (Exception e) {
+                tx.rollback();
+                System.out.println("⚠️ Error persisting/merging issue: " + e.getMessage());
+                e.printStackTrace();
+                return false;
+            }
         } catch (Exception e) {
-            System.out.println("⚠️ Error posting issue: " + e.getMessage());
+            System.out.println("⚠️ Error opening session: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
-
     // Get all issues
     public List<Issue> getAllIssues() {
         List<Issue> issues = new ArrayList<>();
@@ -104,22 +147,32 @@ public class IssueController {
     public boolean addComment(Comment comment, int userId) {
         try (Session session = sessionFactory.openSession()) {
             Transaction tx = session.beginTransaction();
-            User user = session.get(User.class, userId);
-            Issue issue = session.get(Issue.class, comment.getId());
-            if (user == null || issue == null) {
-                System.out.println("❌ User or Issue not found: UserID=" + userId + ", IssueID=" + comment.getId());
+            try {
+                // Reattach the Issue and User to the current session
+                Issue issue = comment.getIssue() != null ? session.merge(comment.getIssue()) : null;
+                User user = session.find(User.class, userId);
+    
+                if (issue == null || user == null) {
+                    System.err.println("Issue or User not found: issueId=" + 
+                        (comment.getIssue() != null ? comment.getIssue().getId() : "null") + 
+                        ", userId=" + userId);
+                    tx.rollback();
+                    return false;
+                }
+    
+                comment.setIssue(issue);
+                comment.setUser(user);
+    
+                session.persist(comment);
+                tx.commit();
+                System.out.println("✅ Comment added for Issue ID: " + issue.getId() + " by User ID: " + userId);
+                return true;
+            } catch (Exception e) {
+                tx.rollback();
+                System.err.println("Error adding comment: " + e.getMessage());
+                e.printStackTrace();
                 return false;
             }
-            comment.setUser(user);
-            comment.setIssue(issue);
-            session.persist(comment);
-            tx.commit();
-            System.out.println("✅ Comment added to Issue ID: " + comment.getId());
-            return true;
-        } catch (Exception e) {
-            System.out.println("⚠️ Error adding comment");
-            e.printStackTrace();
-            return false;
         }
     }
 
@@ -379,4 +432,36 @@ public class IssueController {
         }
         return results;
     }
+
+    public long getIssueCount() {
+        try (Session session = sessionFactory.openSession()) {
+            Query<Long> query = session.createQuery("SELECT COUNT(*) FROM Issue", Long.class);
+            Long result = query.uniqueResult();
+            System.out.println("Total Issues Count: " + (result != null ? result : 0L));
+            return result != null ? result : 0L;
+        }
+    }
+
+    public long getOpenIssueCount() {
+        try (Session session = sessionFactory.openSession()) {
+            Query<Long> query = session.createQuery(
+                "SELECT COUNT(*) FROM Issue WHERE status = :status", Long.class);
+            query.setParameter("status", "open");
+            Long result = query.uniqueResult();
+            System.out.println("Open Issues Count: " + (result != null ? result : 0L));
+            return result != null ? result : 0L;
+        }
+    }
+
+    public long getCommentCount() {
+        try (Session session = sessionFactory.openSession()) {
+            Query<Long> query = session.createQuery("SELECT COUNT(*) FROM Comment", Long.class);
+            Long result = query.uniqueResult();
+            System.out.println("Comments Count: " + (result != null ? result : 0L));
+            return result != null ? result : 0L;
+        }
+    }
+
+
+
 }

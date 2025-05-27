@@ -154,4 +154,20 @@ public class User {
     public void setBlocked(boolean isBlocked) {
         this.isBlocked = isBlocked;
     }
+
+    public String getStatus() {
+        return isBlocked ? "BLOCKED" : "ACTIVE";
+    }
+    
+    public void setStatus(String status) {
+        if ("BLOCKED".equalsIgnoreCase(status)) {
+            this.isBlocked = true;
+        } else if ("ACTIVE".equalsIgnoreCase(status)) {
+            this.isBlocked = false;
+        } else {
+            throw new IllegalArgumentException("Invalid status: " + status);
+        }
+    }
+
+ 
 }

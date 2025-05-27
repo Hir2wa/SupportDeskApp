@@ -32,7 +32,6 @@ public class Report {
 
     @Column(name = "status", columnDefinition = "VARCHAR(50) DEFAULT 'pending'")
     private String status;
-
     // Constructors
     public Report() {
         this.status = "pending"; // Match database default
@@ -107,5 +106,10 @@ public class Report {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public Object getCommentId() {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'getCommentId'");
     }
 }

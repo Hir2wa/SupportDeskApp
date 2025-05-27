@@ -1,16 +1,23 @@
 package Controller;
 
 import model.User;
+import model.AuditLog;
 import model.Issue;
 import model.Like;
+import model.SystemSettings;
 
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.hibernate.Transaction;
 import org.hibernate.query.Query;
+
+
+import util.EmailService;
 import util.HibernateUtil;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
+import org.mindrot.jbcrypt.BCrypt;
 
 public class UserController {
     private final SessionFactory sessionFactory;
@@ -30,12 +37,75 @@ public class UserController {
     }
 
 
+    public String generateOTP() {
+        return String.format("%06d", new Random().nextInt(999999));
+    }
+
+
+    // Send OTP for password reset
+    public String sendPasswordResetOTP(String email) {
+        try (Session session = sessionFactory.openSession()) {
+            User user = session.createQuery("FROM User WHERE email = :email", User.class)
+                    .setParameter("email", email)
+                    .uniqueResult();
+            if (user == null) {
+                System.out.println("❌ User not found: " + email);
+                return null;
+            }
+            String otp = generateOTP();
+            new EmailService().sendOTPEmail(email, otp);
+
+            Transaction tx = session.beginTransaction();
+            AuditLog auditLog = new AuditLog(user, "Sent password reset OTP", user.getId(), "User");
+            session.persist(auditLog);
+            tx.commit();
+
+            System.out.println("✅ OTP sent to " + email);
+            return otp; // For simplicity; store in DB for production
+        } catch (Exception e) {
+            System.out.println("⚠️ Error sending OTP: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+
+
+    public boolean resetPassword(String email, String otp, String newPassword, String storedOtp) {
+        try (Session session = sessionFactory.openSession()) {
+            if (!otp.equals(storedOtp)) {
+                System.out.println("❌ Invalid OTP for " + email);
+                return false;
+            }
+            Transaction tx = session.beginTransaction();
+            User user = session.createQuery("FROM User WHERE email = :email", User.class)
+                    .setParameter("email", email)
+                    .uniqueResult();
+            if (user == null) {
+                System.out.println("❌ User not found: " + email);
+                return false;
+            }
+            user.setPassword(BCrypt.hashpw(newPassword, BCrypt.gensalt()));
+            session.update(user);
+
+            AuditLog auditLog = new AuditLog(user, "Password reset", user.getId(), "User");
+            session.persist(auditLog);
+            tx.commit();
+            System.out.println("✅ Password reset for " + email);
+            return true;
+        } catch (Exception e) {
+            System.out.println("⚠️ Error resetting password: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
 
 
     // 🔐 Register a new user
     public boolean registerUser(User user) {
         try (Session session = sessionFactory.openSession()) {
             Transaction tx = session.beginTransaction();
+            user.setPassword(BCrypt.hashpw(user.getPassword(), BCrypt.gensalt()));
             session.persist(user);
             tx.commit();
             System.out.println("✅ User registered: " + user.getUsername());
@@ -48,26 +118,34 @@ public class UserController {
     }
 
     // 🔐 Authenticate user and return User object
-    public User loginAndGetUser(String username, String password) {
-        try (Session session = sessionFactory.openSession()) {
-            Query<User> query = session.createQuery(
-                "FROM User WHERE username = :username AND password = :password", User.class);
-            query.setParameter("username", username);
-            query.setParameter("password", password);
-            User user = query.uniqueResult();
-            if (user != null) {
-                currentLoggedInUserId = user.getId();
-                System.out.println("✅ Login successful for user: " + username);
-            } else {
-                System.out.println("❌ Login failed for user: " + username);
+    // Replace the existing loginAndGetUser method in UserController.java with this fixed version:
+
+// 🔐 Authenticate user and return User object
+public User loginAndGetUser(String username, String password) {
+    try (Session session = sessionFactory.openSession()) {
+        Query<User> query = session.createQuery(
+            "FROM User WHERE username = :username", User.class);
+        query.setParameter("username", username);
+        User user = query.uniqueResult();
+        
+        if (user != null && BCrypt.checkpw(password, user.getPassword())) {
+            if (user.isBlocked()) {
+                System.out.println("❌ Login failed - User is blocked: " + username);
+                return null;
             }
+            currentLoggedInUserId = user.getId();
+            System.out.println("✅ Login successful for user: " + username);
             return user;
-        } catch (Exception e) {
-            System.out.println("⚠️ Login error");
-            e.printStackTrace();
+        } else {
+            System.out.println("❌ Login failed for user: " + username);
             return null;
         }
+    } catch (Exception e) {
+        System.out.println("⚠️ Login error");
+        e.printStackTrace();
+        return null;
     }
+}
 
     // Keep for backward compatibility
     public boolean loginUser(String username, String password) {
@@ -146,6 +224,21 @@ public class UserController {
             return 0;
         }
     }
+
+    public boolean addUser(User user) {
+        try (Session session = sessionFactory.openSession()) {
+            session.beginTransaction();
+            session.persist(user);
+            session.getTransaction().commit();
+            System.out.println("✅ User added: " + user.getUsername());
+            return true;
+        } catch (Exception e) {
+            System.out.println("❌ Failed to add user: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
 
     // 💬 Count comments received on user's issues
     public int countCommentsReceivedByUserId(int userId) {
@@ -323,43 +416,108 @@ public class UserController {
         }
     }
 
-    public void testSearch() {
-        System.out.println("\n----- TESTING SEARCH FUNCTIONALITY -----");
-        String testQuery = "4";
-        System.out.println("Testing search for users with query: " + testQuery);
-        try (Session session = sessionFactory.openSession()) {
-            String pattern = "%" + testQuery + "%";
-            Query<User> query = session.createQuery(
-                "FROM User WHERE username ILIKE :pattern OR email ILIKE :pattern OR fullName ILIKE :pattern", User.class);
-            query.setParameter("pattern", pattern);
-            List<User> users = query.getResultList();
-            if (!users.isEmpty()) {
-                users.forEach(user -> System.out.println("  Found user: ID=" + user.getId() +
-                        ", Username=" + user.getUsername() + ", Email=" + user.getEmail()));
-            } else {
-                System.out.println("  No users found with query: " + testQuery);
-            }
-        } catch (Exception e) {
-            System.out.println("Error in user search test: " + e.getMessage());
-            e.printStackTrace();
-        }
 
-        System.out.println("Testing search for issues with query: " + testQuery);
+    public User authenticate(String username, String password) {
         try (Session session = sessionFactory.openSession()) {
-            String pattern = "%" + testQuery + "%";
-            Query<Issue> query = session.createQuery(
-                "FROM Issue WHERE title ILIKE :pattern OR description ILIKE :pattern", Issue.class);
-            query.setParameter("pattern", pattern);
-            List<Issue> issues = query.getResultList();
-            if (!issues.isEmpty()) {
-                issues.forEach(issue -> System.out.println("  Found issue: ID=" + issue.getId() +
-                        ", Title=" + issue.getTitle()));
-            } else {
-                System.out.println("  No issues found with query: " + testQuery);
+            User user = session.createQuery("FROM User WHERE username = :username", User.class)
+                    .setParameter("username", username)
+                    .uniqueResult();
+            if (user != null && BCrypt.checkpw(password, user.getPassword()) && !"BLOCKED".equals(user.getStatus())) {
+                return user;
             }
+            return null;
         } catch (Exception e) {
-            System.out.println("Error in issue search test: " + e.getMessage());
+            System.err.println("⚠️ Error authenticating user: " + e.getMessage());
             e.printStackTrace();
+            return null;
         }
     }
+
+    // Check if system is in maintenance mode
+    public boolean isMaintenanceMode() {
+        try (Session session = sessionFactory.openSession()) {
+            SystemSettings setting = session.createQuery("FROM SystemSettings WHERE settingKey = :key", SystemSettings.class)
+                    .setParameter("key", "maintenance_mode")
+                    .uniqueResult();
+            return setting != null && "true".equals(setting.getSettingValue());
+        } catch (Exception e) {
+            System.err.println("⚠️ Error checking maintenance mode: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    // Toggle maintenance mode (for admin)
+    public boolean setMaintenanceMode(boolean enabled) {
+        try (Session session = sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            
+            // Use settingKey (property name) instead of setting_key (column name)
+            SystemSettings setting = session.createQuery("FROM SystemSettings WHERE settingKey = :key", SystemSettings.class)
+                    .setParameter("key", "maintenance_mode")
+                    .uniqueResult();
+                    
+            if (setting == null) {
+                setting = new SystemSettings();
+                setting.setSettingKey("maintenance_mode");
+                setting.setSettingValue(enabled ? "true" : "false");
+                session.persist(setting);
+            } else {
+                setting.setSettingValue(enabled ? "true" : "false");
+                session.merge(setting); // Use merge instead of update
+            }
+            
+            tx.commit();
+            System.out.println("✅ Maintenance mode set to: " + enabled);
+            return true;
+        } catch (Exception e) {
+            System.err.println("⚠️ Error setting maintenance mode: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    // Block or unblock a user (for admin)
+    public boolean setUserStatus(int userId, String status) {
+        try (Session session = sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            User user = session.get(User.class, userId);
+            if (user != null) {
+                user.setStatus(status);
+                session.update(user);
+                tx.commit();
+                System.out.println("✅ User ID " + userId + " status set to: " + status);
+                return true;
+            }
+            tx.rollback();
+            System.err.println("⚠️ User ID " + userId + " not found");
+            return false;
+        } catch (Exception e) {
+            System.err.println("⚠️ Error setting user status: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+
+
+
+    public List<AuditLog> getRecentAuditLogs(int limit) {
+        try (Session session = sessionFactory.openSession()) {
+            Query<AuditLog> query = session.createQuery(
+                "FROM AuditLog ORDER BY timestamp DESC", AuditLog.class);
+            query.setMaxResults(limit);
+            List<AuditLog> logs = query.list();
+            System.out.println("✅ Fetched " + logs.size() + " recent audit logs");
+            return logs;
+        } catch (Exception e) {
+            System.err.println("⚠️ Error fetching audit logs: " + e.getMessage());
+            e.printStackTrace();
+            return List.of(); // Return empty list on error
+        }
+    }
+
+
+
+    
 }

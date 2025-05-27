@@ -25,6 +25,7 @@ public class AdminController {
         this.issueController = new IssueController();
         System.out.println("✅ Admin Hibernate SessionFactory initialized!");
     }
+      NoticeController noticeController = new NoticeController();
 
     /**
      * Get all reports in the system
@@ -57,6 +58,24 @@ public class AdminController {
             System.out.println("❌ Failed to block user");
             e.printStackTrace();
             return false;
+        }
+    }
+
+
+
+    public Report getReportById(int reportId) {
+        try (Session session = sessionFactory.openSession()) {
+            Report report = session.get(Report.class, reportId);
+            if (report != null) {
+                System.out.println("✅ Fetched report: " + reportId);
+            } else {
+                System.out.println("❌ Report not found: " + reportId);
+            }
+            return report;
+        } catch (Exception e) {
+            System.out.println("❌ Failed to fetch report: " + e.getMessage());
+            e.printStackTrace();
+            return null;
         }
     }
 
@@ -118,43 +137,38 @@ public class AdminController {
      * @param postedBy User ID of the admin posting the notice
      * @return true if successful, false otherwise
      */
-    public boolean postNotice(String title, String content, int postedBy) {
-        try (Session session = sessionFactory.openSession()) {
-            Transaction tx = session.beginTransaction();
-            User user = session.get(User.class, postedBy);
-            if (user == null) {
-                System.out.println("❌ User not found: ID=" + postedBy);
-                return false;
-            }
-            Notice notice = new Notice(title, content, user);
-            session.persist(notice);
-            tx.commit();
-            System.out.println("✅ Notice posted: " + title + " by User ID: " + postedBy);
-            return true;
-        } catch (Exception e) {
-            System.out.println("❌ Failed to post notice");
-            e.printStackTrace();
-            return false;
-        }
-    }
+    // public boolean postNotice(String title, String content, int postedBy) {
+    //     try (Session session = sessionFactory.openSession()) {
+    //         Transaction tx = session.beginTransaction();
+    //         User user = session.get(User.class, postedBy);
+    //         if (user == null) {
+    //             System.out.println("❌ User not found: ID=" + postedBy);
+    //             return false;
+    //         }
+    //         Notice notice = new Notice(title, content, user);
+    //         session.persist(notice);
+    //         tx.commit();
+    //         System.out.println("✅ Notice posted: " + title + " by User ID: " + postedBy);
+    //         return true;
+    //     } catch (Exception e) {
+    //         System.out.println("❌ Failed to post notice");
+    //         e.printStackTrace();
+    //         return false;
+    //     }
+    // }
 
     /**
      * Get all notices ordered by creation date
      * @return List of notices
      */
-    public List<Notice> getAllNotices() {
-        List<Notice> notices = new ArrayList<>();
-        try (Session session = sessionFactory.openSession()) {
-            Query<Notice> query = session.createQuery("FROM Notice ORDER BY createdAt DESC", Notice.class);
-            notices = query.getResultList();
-            System.out.println("✅ Fetched " + notices.size() + " notices");
-        } catch (Exception e) {
-            System.out.println("❌ Failed to get notices");
-            e.printStackTrace();
-        }
-        return notices;
+public List<Notice> getAllNotices() {
+        return noticeController.getAllNotices();
     }
 
+
+    public boolean generateReportPdf(String dest, Integer issueId, Integer commentId, Integer reportedBy) {
+        return reportController.generateReportPdf(dest, issueId, commentId, reportedBy);
+    }
     /**
      * Delete a notice
      * @param noticeId The notice ID to delete
@@ -179,6 +193,32 @@ public class AdminController {
         }
     }
 
+ public boolean updateNotice(int noticeId, String title, String content) {
+        Notice notice = noticeController.getNoticeById(noticeId);
+        if (notice == null) {
+            return false;
+        }
+        notice.setTitle(title);
+        notice.setContent(content);
+        return noticeController.updateNotice(notice);
+    }
+
+
+    public boolean postNotice(String title, String content, int userId) {
+        User user = new UserController().getUserById(userId);
+        if (user == null || !user.isAdmin()) {
+            System.out.println("❌ Invalid admin ID or user is not an admin: " + userId);
+            return false;
+        }
+        Notice notice = new Notice(title, content, user);
+        return noticeController.createNotice(notice, userId);
+    }
+
+
+
+ public Notice getNoticeById(int noticeId) {
+        return noticeController.getNoticeById(noticeId);
+    }
     /**
      * Get all users in the system
      * @return List of users
@@ -200,47 +240,186 @@ public class AdminController {
      * Get system statistics
      * @return AdminStats object with system metrics
      */
-    public model.AdminStats getSystemStats() {
-        model.AdminStats stats = new model.AdminStats();
+
+
+
+
+     public boolean toggleAdminStatus(int userId) {
+        try (Session session = sessionFactory.openSession()) {
+            session.beginTransaction();
+            User user = session.get(User.class, userId);
+            if (user != null) {
+                user.setAdmin(!user.isAdmin());
+                session.merge(user);
+                session.getTransaction().commit();
+                System.out.println("✅ Toggled admin status for user: " + userId);
+                return true;
+            }
+            System.out.println("❌ User not found: " + userId);
+            return false;
+        } catch (Exception e) {
+            System.out.println("❌ Failed to toggle admin status: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    public boolean deleteUser(int userId) {
+        try (Session session = sessionFactory.openSession()) {
+            session.beginTransaction();
+            User user = session.get(User.class, userId);
+            if (user != null) {
+                session.remove(user);
+                session.getTransaction().commit();
+                System.out.println("✅ Deleted user: " + userId);
+                return true;
+            }
+            System.out.println("❌ User not found: " + userId);
+            return false;
+        } catch (Exception e) {
+            System.out.println("❌ Failed to delete user: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    public List<User> searchUsers(String query) {
+        try (Session session = sessionFactory.openSession()) {
+            Query<User> q = session.createQuery(
+                "FROM User WHERE username LIKE :query OR fullName LIKE :query OR email LIKE :query",
+                User.class);
+            q.setParameter("query", "%" + query + "%");
+            List<User> users = q.getResultList();
+            System.out.println("✅ Found " + users.size() + " users for query: " + query);
+            return users;
+        } catch (Exception e) {
+            System.out.println("❌ Failed to search users: " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+    public AdminStats getSystemStats() {
+        AdminStats stats = new AdminStats();
         try (Session session = sessionFactory.openSession()) {
             // Total users
-            Query<Long> userQuery = session.createQuery("SELECT COUNT(*) FROM User", Long.class);
-            stats.setTotalUsers(userQuery.uniqueResult().intValue());
-
+            try {
+                Query<Long> userQuery = session.createQuery("SELECT COUNT(*) FROM User", Long.class);
+                Long userCount = userQuery.uniqueResult();
+                stats.setTotalUsers(userCount != null ? userCount.intValue() : 0);
+                System.out.println("✅ Users counted: " + stats.getTotalUsers());
+            } catch (Exception e) {
+                System.out.println("❌ Failed to count users: " + e.getMessage());
+                stats.setTotalUsers(0);
+            }
+    
             // Total issues
-            Query<Long> issueQuery = session.createQuery("SELECT COUNT(*) FROM Issue", Long.class);
-            stats.setTotalIssues(issueQuery.uniqueResult().intValue());
-
+            try {
+                Query<Long> issueQuery = session.createQuery("SELECT COUNT(*) FROM Issue", Long.class);
+                Long issueCount = issueQuery.uniqueResult();
+                stats.setTotalIssues(issueCount != null ? issueCount.intValue() : 0);
+                System.out.println("✅ Issues counted: " + stats.getTotalIssues());
+            } catch (Exception e) {
+                System.out.println("❌ Failed to count issues: " + e.getMessage());
+                stats.setTotalIssues(0);
+            }
+    
+            // Open issues
+            try {
+                Query<Long> openIssueQuery = session.createQuery(
+                    "SELECT COUNT(*) FROM Issue i WHERE i.status = :status", Long.class);
+                openIssueQuery.setParameter("status", "open");
+                Long openIssueCount = openIssueQuery.uniqueResult();
+                stats.setOpenIssues(openIssueCount != null ? openIssueCount.intValue() : 0);
+                System.out.println("✅ Open issues counted: " + stats.getOpenIssues());
+            } catch (Exception e) {
+                System.out.println("❌ Failed to count open issues: " + e.getMessage());
+                stats.setOpenIssues(0);
+            }
+    
             // Total comments
-            Query<Long> commentQuery = session.createQuery("SELECT COUNT(*) FROM Comment", Long.class);
-            stats.setTotalComments(commentQuery.uniqueResult().intValue());
-
+            try {
+                Query<Long> commentQuery = session.createQuery("SELECT COUNT(*) FROM Comment", Long.class);
+                Long commentCount = commentQuery.uniqueResult();
+                stats.setTotalComments(commentCount != null ? commentCount.intValue() : 0);
+                System.out.println("✅ Comments counted: " + stats.getTotalComments());
+            } catch (Exception e) {
+                System.out.println("❌ Failed to count comments: " + e.getMessage());
+                stats.setTotalComments(0);
+            }
+    
             // Active reports
-            Query<Long> reportQuery = session.createQuery("SELECT COUNT(*) FROM Report", Long.class);
-            stats.setActiveReports(reportQuery.uniqueResult().intValue());
-
-            // Recent activity (issues in last 7 days)
-            Query<Long> recentQuery = session.createQuery(
-                "SELECT COUNT(*) FROM Issue WHERE createdAt >= :date", Long.class);
-            recentQuery.setParameter("date", new java.sql.Timestamp(
-                System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000));
-            stats.setRecentActivity(recentQuery.uniqueResult().intValue());
-
-            System.out.println("✅ Fetched system stats");
+            try {
+                Query<Long> reportQuery = session.createQuery(
+                    "SELECT COUNT(*) FROM Report r WHERE r.status = :status", Long.class);
+                reportQuery.setParameter("status", "pending");
+                Long reportCount = reportQuery.uniqueResult();
+                stats.setActiveReports(reportCount != null ? reportCount.intValue() : 0);
+                System.out.println("✅ Reports counted: " + stats.getActiveReports());
+            } catch (Exception e) {
+                System.out.println("❌ Failed to count reports: " + e.getMessage());
+                stats.setActiveReports(0);
+            }
+    
+            // System notices
+            try {
+                Query<Long> noticeQuery = session.createQuery(
+                    "SELECT COUNT(*) FROM Notice n WHERE n.status = :status", Long.class);
+                noticeQuery.setParameter("status", "active");
+                Long noticeCount = noticeQuery.uniqueResult();
+                stats.setSystemNotices(noticeCount != null ? noticeCount.intValue() : 0);
+                System.out.println("✅ Notices counted: " + stats.getSystemNotices());
+            } catch (Exception e) {
+                System.out.println("❌ Failed to count notices: " + e.getMessage());
+                stats.setSystemNotices(0);
+            }
+    
+            System.out.println("✅ Fetched system stats: Users=" + stats.getTotalUsers() +
+                ", Issues=" + stats.getTotalIssues() +
+                ", OpenIssues=" + stats.getOpenIssues() +
+                ", Comments=" + stats.getTotalComments() +
+                ", Reports=" + stats.getActiveReports() +
+                ", Notices=" + stats.getSystemNotices());
         } catch (Exception e) {
-            System.out.println("❌ Failed to get system stats");
+            System.out.println("❌ Failed to open session: " + e.getMessage());
             e.printStackTrace();
         }
         return stats;
+    }
+
+    /**
+     * Update report status
+     * @param reportId The report ID to update
+     * @param status The new status
+     * @return true if successful, false otherwise
+     */
+    public boolean updateReportStatus(int reportId, String status) {
+        try (Session session = sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            Report report = session.get(Report.class, reportId);
+            if (report == null) {
+                System.out.println("❌ Report not found: ID=" + reportId);
+                return false;
+            }
+            report.setStatus(status);
+            session.merge(report);
+            tx.commit();
+            System.out.println("✅ Report status updated: ID=" + reportId + ", Status=" + status);
+            return true;
+        } catch (Exception e) {
+            System.out.println("❌ Failed to update report status: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
     }
 
     // Inner class to hold system statistics
     public class AdminStats {
         private int totalUsers;
         private int totalIssues;
+        private int openIssues;
         private int totalComments;
         private int activeReports;
-        private int recentActivity;
+        private int systemNotices;
 
         public int getTotalUsers() {
             return totalUsers;
@@ -256,6 +435,14 @@ public class AdminController {
 
         public void setTotalIssues(int totalIssues) {
             this.totalIssues = totalIssues;
+        }
+
+        public int getOpenIssues() {
+            return openIssues;
+        }
+
+        public void setOpenIssues(int openIssues) {
+            this.openIssues = openIssues;
         }
 
         public int getTotalComments() {
@@ -274,12 +461,17 @@ public class AdminController {
             this.activeReports = activeReports;
         }
 
-        public int getRecentActivity() {
-            return recentActivity;
+        public int getSystemNotices() {
+            return systemNotices;
         }
 
-        public void setRecentActivity(int recentActivity) {
-            this.recentActivity = recentActivity;
+        public void setSystemNotices(int systemNotices) {
+            this.systemNotices = systemNotices;
         }
+    }
+
+    public boolean deleteReportedContent(int reportId, String type) {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'deleteReportedContent'");
     }
 }

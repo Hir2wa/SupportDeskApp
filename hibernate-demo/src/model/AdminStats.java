@@ -1,31 +1,70 @@
 package model;
 
 public class AdminStats {
-    private int totalUsers;
-    private int totalIssues;
-    private int totalComments;
-    private int activeReports;
-    private int recentActivity;
+    private long totalUsers;
+    private long totalIssues;
+    private long openIssues;
+    private long totalComments;
+    private long activeReports;
+    private long systemNotices;
 
     public AdminStats() {}
 
-    public AdminStats(int users, int issues, int comments, int reports, int recentActivity) {
-        this.totalUsers = users;
-        this.totalIssues = issues;
-        this.totalComments = comments;
-        this.activeReports = reports;
-        this.recentActivity = recentActivity;
+    public long getTotalUsers() {
+        return totalUsers;
     }
 
-    public int getTotalUsers() { return totalUsers; }
-    public int getTotalIssues() { return totalIssues; }
-    public int getTotalComments() { return totalComments; }
-    public int getActiveReports() { return activeReports; }
-    public int getRecentActivity() { return recentActivity; }
+    public void setTotalUsers(long totalUsers) {
+        this.totalUsers = totalUsers;
+    }
 
-    public void setTotalUsers(int totalUsers) { this.totalUsers = totalUsers; }
-    public void setTotalIssues(int totalIssues) { this.totalIssues = totalIssues; }
-    public void setTotalComments(int totalComments) { this.totalComments = totalComments; }
-    public void setActiveReports(int activeReports) { this.activeReports = activeReports; }
-    public void setRecentActivity(int recentActivity) { this.recentActivity = recentActivity; }
+    public long getTotalIssues() {
+        return totalIssues;
+    }
+
+    public void setTotalIssues(long totalIssues) {
+        this.totalIssues = totalIssues;
+    }
+
+    public long getOpenIssues() {
+        return openIssues;
+    }
+
+    public void setOpenIssues(long openIssues) {
+        this.openIssues = openIssues;
+    }
+
+    public long getTotalComments() {
+        return totalComments;
+    }
+
+    public void setTotalComments(long totalComments) {
+        this.totalComments = totalComments;
+    }
+
+    public long getActiveReports() {
+        return activeReports;
+    }
+
+    public void setActiveReports(long activeReports) {
+        this.activeReports = activeReports;
+    }
+
+    public long getSystemNotices() {
+        return systemNotices;
+    }
+
+    public void setSystemNotices(long systemNotices) {
+        this.systemNotices = systemNotices;
+    }
+
+    public char[] getRecentActivity() {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'getRecentActivity'");
+    }
+
+    public void setRecentActivity(int intValue) {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'setRecentActivity'");
+    }
 }

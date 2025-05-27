@@ -2,6 +2,7 @@ package Controller;
 
 import model.Report;
 import model.User;
+import model.AuditLog;
 import model.Comment;
 import model.Issue;
 import org.hibernate.Session;
@@ -9,6 +10,8 @@ import org.hibernate.SessionFactory;
 import org.hibernate.Transaction;
 import org.hibernate.query.Query;
 import util.HibernateUtil;
+import util.PdfGenerator;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -198,4 +201,49 @@ public class ReportController {
             return false;
         }
     }
+
+    public boolean generateReportPdf(String dest, Integer issueId, Integer commentId, Integer reportedBy) {
+        Session session = null;
+        try {
+            session = sessionFactory.openSession();
+            Transaction tx = session.beginTransaction();
+    
+            // Fetch reports based on the provided filters using the existing fetchReportsBy method
+            List<Report> reports = fetchReportsBy(issueId, commentId, reportedBy);
+            if (reports.isEmpty()) {
+                System.out.println("⚠️ No reports found for the given criteria: issueId=" + issueId + ", commentId=" + commentId + ", reportedBy=" + reportedBy);
+                tx.commit();
+                return false;
+            }
+    
+            // Generate the PDF using PdfGenerator (user selects save location via JFileChooser)
+            PdfGenerator pdfGenerator = new PdfGenerator();
+            pdfGenerator.generateReportPdf(reports); // No dest parameter needed
+    
+            // Audit logging
+            AuditLog auditLog = new AuditLog();
+            auditLog.setAdmin(session.get(User.class, 1L)); // Replace 1 with actual admin ID
+            auditLog.setAction("Generated PDF report with filters: issueId=" + issueId + ", commentId=" + commentId + ", reportedBy=" + reportedBy);
+            auditLog.setTargetType("Report");
+            session.persist(auditLog);
+    
+            tx.commit();
+            System.out.println("✅ PDF generated and audit logged");
+            return true;
+        } catch (Exception e) {
+            if (session != null && session.getTransaction().isActive()) {
+                session.getTransaction().rollback();
+            }
+            System.err.println("⚠️ Error generating PDF: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        } finally {
+            if (session != null) {
+                session.close();
+            }
+        }
+    }
+  
+
+    
 }

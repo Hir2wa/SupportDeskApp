@@ -11,7 +11,7 @@
         <property name="hibernate.connection.password">2003</property>
         <property name="hibernate.dialect">org.hibernate.dialect.PostgreSQLDialect</property>
         <!-- Schema generation -->
-        <property name="hibernate.hbm2ddl.auto">update</property>
+        <property name="hibernate.hbm2ddl.auto">validate</property>
         <!-- SQL logging -->
         <property name="hibernate.show_sql">true</property>
         <property name="hibernate.format_sql">true</property>
@@ -31,5 +31,7 @@
         <mapping class="model.Notice"/>
         <mapping class="model.Report"/>
         <mapping class="model.Notification"/>
+        <mapping class="model.SystemSettings"/>
+        <mapping class="model.AuditLog"/>
     </session-factory>
 </hibernate-configuration>

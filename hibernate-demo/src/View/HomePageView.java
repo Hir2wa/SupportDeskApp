@@ -7,11 +7,13 @@ import javax.swing.border.LineBorder;
 import java.text.SimpleDateFormat;
 import java.sql.Timestamp;
 import Controller.IssueController;
+import Controller.NoticeController;
 import Controller.ReportController;
 import Controller.UserController;
 import model.Issue;
 import model.Like;
 import model.Comment;
+import model.Notice;
 import model.Report;
 import model.User;
 import java.awt.event.KeyAdapter;
@@ -21,12 +23,13 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
-import java.awt.image.BufferedImage;
-import java.io.File;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class HomePageView {
 
@@ -36,23 +39,27 @@ public class HomePageView {
     private IssueController issueController;
     private UserController userController;
     private ReportController reportController;
+    private NoticeController noticeController;
     private int userId;
     private Color primaryColor = new Color(0, 102, 204);
     private Color accentColor = new Color(51, 153, 255);
     private Color lightGray = new Color(245, 245, 245);
+    private LocalDateTime lastNoticeTime;
+    private Timer noticePollingTimer;
 
     public HomePageView(String username, ImageIcon profilePic) {
         this.username = username;
         this.issueController = new IssueController();
         this.userController = new UserController();
         this.reportController = new ReportController();
+        this.noticeController = new NoticeController();
         this.userId = getUserIdFromUsername(username);
-        
+        this.lastNoticeTime = LocalDateTime.now();
         homeFrame = new JFrame("Support Desk - Home");
         homeFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         homeFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         homeFrame.setLocationRelativeTo(null);
-
+        checkNoticesImmediately();
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BorderLayout(0, 0));
         mainPanel.setBackground(Color.WHITE);
@@ -84,33 +91,15 @@ public class HomePageView {
             @Override
             public void actionPerformed(ActionEvent e) {
                 User user = userController.getUserByUsername(username);
-
-                BufferedImage fallbackImg = new BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB);
-                Graphics2D g2d = fallbackImg.createGraphics();
-                g2d.setColor(new Color(0, 102, 204));
-                g2d.fillRect(0, 0, 100, 100);
-                g2d.dispose();
-                ImageIcon defaultPic = new ImageIcon(fallbackImg);
-                
-                try {
-                    File imageFile = new File("Assets/LogoSupportDesk.png");
-                    if (imageFile.exists()) {
-                        defaultPic = new ImageIcon(imageFile.getAbsolutePath());
-                    }
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                }
-                
-                ImageIcon finalProfilePic = (profilePic != null) ? profilePic : defaultPic;
-
                 if (user != null) {
                     int issuesSubmitted = issueController.countIssuesByUserId(user.getId());
                     int likesReceived = issueController.countLikesReceivedByUserId(user.getId());
                     int commentsReceived = issueController.countCommentsReceivedByUserId(user.getId());
                     int commentsMade = issueController.countCommentsMadeByUserId(user.getId());
-
-                    new ProfileView(user.getUsername(), user.getEmail(), finalProfilePic,
-                                    issuesSubmitted, likesReceived, commentsReceived, commentsMade, false);
+                    boolean isCurrentUser = userController.getCurrentLoggedInUserId() == user.getId();
+                    System.out.println("Opening ProfileView from HomePageView for username: " + username + ", allowEditing: " + isCurrentUser);
+                    new ProfileView(user.getUsername(), user.getEmail(), null,
+                                    issuesSubmitted, likesReceived, commentsReceived, commentsMade, isCurrentUser);
                 } else {
                     JOptionPane.showMessageDialog(homeFrame, "User info not found!", "Error", JOptionPane.ERROR_MESSAGE);
                 }
@@ -180,6 +169,7 @@ public class HomePageView {
         signOutButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                stopNoticePolling();
                 homeFrame.dispose();
                 new LoginView();
             }
@@ -203,9 +193,9 @@ public class HomePageView {
             BorderFactory.createEmptyBorder(10, 10, 10, 10)
         ));
         newPostPanel.setBackground(Color.WHITE);
-        newPostPanel.setPreferredSize(new Dimension(600, 200)); // Set reasonable width
+        newPostPanel.setPreferredSize(new Dimension(600, 200));
         newPostPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
-        newPostPanel.setVisible(true); // Ensure visibility
+        newPostPanel.setVisible(true);
         
         JTextArea newPostTextArea = new JTextArea(4, 50);
         newPostTextArea.setWrapStyleWord(true);
@@ -219,7 +209,7 @@ public class HomePageView {
         JScrollPane postScrollPane = new JScrollPane(newPostTextArea);
         postScrollPane.setBorder(BorderFactory.createEmptyBorder());
         postScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-        postScrollPane.setPreferredSize(new Dimension(600, 100)); // Ensure scroll pane has width
+        postScrollPane.setPreferredSize(new Dimension(600, 100));
 
         JButton postButton = createStyledButton("Post New Issue", accentColor);
         postButton.setFont(new Font("Arial", Font.BOLD, 14));
@@ -264,7 +254,6 @@ public class HomePageView {
 
         homeFrame.setContentPane(mainPanel);
         homeFrame.setVisible(true);
-
         postButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -273,10 +262,18 @@ public class HomePageView {
                     Issue newIssue = new Issue();
                     newIssue.setTitle("New Issue by " + username);
                     newIssue.setDescription(postText);
-                    newIssue.setId(userId);
-                    
+                    newIssue.setStatus("OPEN");
+                    newIssue.setCreatedAt(new Timestamp(System.currentTimeMillis()));
+                    newIssue.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
+                    newIssue.setLikes(null);
+        
+                    System.out.println("Posting issue: ID=" + newIssue.getId() + 
+                        ", Title=" + newIssue.getTitle() + 
+                        ", Status=" + newIssue.getStatus() + 
+                        ", Description=" + newIssue.getDescription());
+        
                     boolean posted = issueController.postIssue(newIssue, userId);
-                    
+        
                     if (posted) {
                         System.out.println("Issue posted with ID: " + newIssue.getId());
                         loadIssues();
@@ -289,6 +286,10 @@ public class HomePageView {
                             "Failed to post issue. Please check database connection.", 
                             "Error", JOptionPane.ERROR_MESSAGE);
                     }
+                } else {
+                    JOptionPane.showMessageDialog(homeFrame, 
+                        "Please enter a description.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
@@ -296,8 +297,99 @@ public class HomePageView {
         userController.debugSampleData();
         userController.testMultipleSearchTerms();
         loadIssues();
+        startNoticePolling();
     }
     
+    private void startNoticePolling() {
+        noticePollingTimer = new Timer(true);
+        noticePollingTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                try {
+                    List<Notice> notices = noticeController.getAllNotices();
+                    if (notices == null) {
+                        System.err.println("⚠️ NoticeController returned null notices");
+                        return;
+                    }
+                    List<Notice> newNotices = new ArrayList<>();
+                    LocalDateTime latestTime = lastNoticeTime;
+                    for (Notice notice : notices) {
+                        LocalDateTime createdAt = notice.getCreatedAt();
+                        if ("active".equals(notice.getStatus()) && createdAt != null && createdAt.isAfter(lastNoticeTime)) {
+                            newNotices.add(notice);
+                            if (createdAt.isAfter(latestTime)) {
+                                latestTime = createdAt;
+                            }
+                            System.out.println("✅ New notice detected: ID=" + notice.getId() + ", Title=" + notice.getTitle());
+                        }
+                    }
+                    if (!newNotices.isEmpty()) {
+                        lastNoticeTime = latestTime;
+                        newNotices.sort((n1, n2) -> n2.getCreatedAt().compareTo(n1.getCreatedAt()));
+                        final Notice latestNotice = newNotices.get(0);
+                        SwingUtilities.invokeLater(() -> showNoticePopup(latestNotice));
+                    }
+                } catch (Exception e) {
+                    System.err.println("⚠️ Error in notice polling: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }, 0, 30000);
+    }
+    private void stopNoticePolling() {
+        if (noticePollingTimer != null) {
+            noticePollingTimer.cancel();
+            noticePollingTimer = null;
+            System.out.println("✅ Notice polling stopped");
+        }
+    }
+
+    private void showNoticePopup(Notice notice) {
+        JDialog dialog = new JDialog(homeFrame, "New Notice", false);
+        dialog.setSize(400, 300);
+        dialog.setLocationRelativeTo(homeFrame);
+
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        mainPanel.setBackground(Color.WHITE);
+
+        JPanel contentPanel = new JPanel(new BorderLayout());
+        contentPanel.setBackground(lightGray);
+        JLabel titleLabel = new JLabel(notice.getTitle());
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 16));
+        contentPanel.add(titleLabel, BorderLayout.NORTH);
+
+        JTextArea contentArea = new JTextArea(notice.getContent());
+        contentArea.setLineWrap(true);
+        contentArea.setWrapStyleWord(true);
+        contentArea.setEditable(false);
+        contentArea.setBackground(lightGray);
+        contentArea.setFont(new Font("Arial", Font.PLAIN, 14));
+        contentPanel.add(new JScrollPane(contentArea), BorderLayout.CENTER);
+
+        User postedBy = notice.getPostedBy();
+        String postedByName = (postedBy != null) ? postedBy.getUsername() : "Unknown";
+        JLabel postedLabel = new JLabel("Posted by " + postedByName + " on " + notice.getCreatedAt());
+        postedLabel.setFont(new Font("Arial", Font.ITALIC, 12));
+        contentPanel.add(postedLabel, BorderLayout.SOUTH);
+
+        mainPanel.add(contentPanel, BorderLayout.CENTER);
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.setBackground(Color.WHITE);
+        JButton cancelButton = new JButton("Cancel");
+        cancelButton.setBackground(primaryColor);
+        cancelButton.setForeground(Color.WHITE);
+        cancelButton.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
+        cancelButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        cancelButton.addActionListener(e -> dialog.dispose());
+        buttonPanel.add(cancelButton);
+        mainPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.add(mainPanel);
+        dialog.setVisible(true);
+    }
+
     public void performSearch(String query) {
         query = query.trim();
         if (!query.isEmpty() && !query.equals("Search issues or users...")) {
@@ -309,7 +401,7 @@ public class HomePageView {
             ArrayList<Issue> issueResults = controller.searchIssues(query);
             System.out.println("Found " + userResults.size() + " users and " + issueResults.size() + " issues");
             
-            new SearchResultsView(query, controller);
+            new SearchResultsView(query, controller, query);
         }
     }
 
@@ -348,7 +440,7 @@ public class HomePageView {
         postsPanel.removeAll();
         
         List<Issue> issues = issueController.getAllIssues();
-        Set<Integer> seenIssueIds = new HashSet<>(); // Deduplicate issues
+        Set<Integer> seenIssueIds = new HashSet<>();
         List<Issue> uniqueIssues = new ArrayList<>();
         
         System.out.println("Loaded issues: " + issues.size());
@@ -422,7 +514,7 @@ public class HomePageView {
             new LineBorder(new Color(220, 220, 220), 1, true),
             new EmptyBorder(15, 15, 15, 15)
         ));
-        postPanel.setPreferredSize(new Dimension(500, 400)); // Set reasonable width
+        postPanel.setPreferredSize(new Dimension(500, 400));
         postPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 300));
         postPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -433,12 +525,12 @@ public class HomePageView {
         postContent.setEditable(false);
         postContent.setBackground(Color.WHITE);
         postContent.setBorder(BorderFactory.createEmptyBorder());
-        postContent.setPreferredSize(new Dimension(600, 50)); // Ensure content stretches
+        postContent.setPreferredSize(new Dimension(600, 50));
 
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         infoPanel.setBackground(lightGray);
         infoPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-       infoPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 10));
+        infoPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 10));
         
         JLabel userIconLabel = new JLabel("👤");
         userIconLabel.setFont(new Font("Arial", Font.PLAIN, 14));
@@ -458,7 +550,7 @@ public class HomePageView {
             deleteIssueButton.setContentAreaFilled(true);
             deleteIssueButton.setBackground(new Color(220, 53, 69));
             deleteIssueButton.setForeground(Color.WHITE);
-           deleteIssueButton.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
+            deleteIssueButton.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
             deleteIssueButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
             deleteIssueButton.setFont(new Font("Arial", Font.PLAIN, 12));
 
@@ -486,190 +578,190 @@ public class HomePageView {
             infoWrapper.add(deleteIssueButton, BorderLayout.EAST);
             infoWrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
             infoPanel = infoWrapper;
-    
         }
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-buttonPanel.setBackground(Color.WHITE);
-buttonPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        buttonPanel.setBackground(Color.WHITE);
+        buttonPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-JButton likeButton = createStyledButton("Like 👍", primaryColor);
-JButton dislikeButton = createStyledButton("Dislike 👎", new Color(150, 150, 150));
-JButton reportButton = createStyledButton("Report ⚠️", new Color(220, 53, 69));
+        JButton likeButton = createStyledButton("Like 👍", primaryColor);
+        JButton dislikeButton = createStyledButton("Dislike 👎", new Color(150, 150, 150));
+        JButton reportButton = createStyledButton("Report ⚠️", new Color(220, 53, 69));
 
-int initialLikeCount = issueController.getLikeCount(issueId);
-int initialDislikeCount = issueController.getDislikeCount(issueId);
+        int initialLikeCount = issueController.getLikeCount(issueId);
+        int initialDislikeCount = issueController.getDislikeCount(issueId);
 
-boolean hasLiked = issueController.hasUserLikedIssue(userId, issueId);
-boolean hasDisliked = issueController.hasUserDislikedIssue(userId, issueId);
+        boolean hasLiked = issueController.hasUserLikedIssue(userId, issueId);
+        boolean hasDisliked = issueController.hasUserDislikedIssue(userId, issueId);
 
-JLabel likeLabel = new JLabel(initialLikeCount + " Likes");
-likeLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        JLabel likeLabel = new JLabel(initialLikeCount + " Likes");
+        likeLabel.setFont(new Font("Arial", Font.BOLD, 12));
 
-JLabel dislikeLabel = new JLabel(initialDislikeCount + " Dislikes");
-dislikeLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        JLabel dislikeLabel = new JLabel(initialDislikeCount + " Dislikes");
+        dislikeLabel.setFont(new Font("Arial", Font.BOLD, 12));
 
-final boolean[] liked = {hasLiked};
-final boolean[] disliked = {hasDisliked};
-final int[] likeCount = {initialLikeCount};
-final int[] dislikeCount = {initialDislikeCount};
+        final boolean[] liked = {hasLiked};
+        final boolean[] disliked = {hasDisliked};
+        final int[] likeCount = {initialLikeCount};
+        final int[] dislikeCount = {initialDislikeCount};
 
-if (liked[0]) {
-    likeButton.setText("Unlike 👍");
-    likeButton.setBackground(primaryColor);
-    likeButton.setForeground(Color.WHITE);
-} else {
-    likeButton.setBackground(new Color(240, 240, 240));
-    likeButton.setForeground(new Color(60, 60, 60));
-}
-
-if (disliked[0]) {
-    dislikeButton.setText("Undislike 👎");
-    dislikeButton.setBackground(primaryColor);
-    dislikeButton.setForeground(Color.WHITE);
-} else {
-    dislikeButton.setBackground(new Color(240, 240, 240));
-    dislikeButton.setForeground(new Color(60, 60, 60)); // Fixed bug
-}
-
-reportButton.setBackground(new Color(240, 240, 240));
-reportButton.setForeground(new Color(60, 60, 60));
-reportButton.setFont(new Font("Arial", Font.PLAIN, 12));
-
-likeButton.addActionListener(e -> {
-    try {
-        System.out.println("Like button clicked: userId=" + userId + ", issueId=" + issueId + ", username=" + this.username);
-        if (issueId <= 0 || userId <= 0) {
-            JOptionPane.showMessageDialog(homeFrame, 
-                "Invalid issue or user.", 
-                "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        if (!liked[0]) {
-            boolean success = issueController.likeIssue(userId, issueId, model.Like.ReactionType.LIKE);
-            if (success) {
-                likeCount[0]++;
-                liked[0] = true;
-                likeButton.setText("Unlike 👍");
-                likeButton.setBackground(primaryColor);
-                likeButton.setForeground(Color.WHITE);
-                if (disliked[0]) {
-                    dislikeCount[0]--;
-                    disliked[0] = false;
-                    dislikeButton.setText("Dislike 👎");
-                    dislikeButton.setBackground(new Color(240, 240, 240));
-                    dislikeButton.setForeground(new Color(60, 60, 60));
-                    dislikeLabel.setText(dislikeCount[0] + " Dislikes");
-                }
-                likeLabel.setText(likeCount[0] + " Likes");
-            } else {
-                JOptionPane.showMessageDialog(homeFrame, 
-                    "Failed to like issue. You may have already liked it.", 
-                    "Notice", JOptionPane.INFORMATION_MESSAGE);
-            }
+        if (liked[0]) {
+            likeButton.setText("Unlike 👍");
+            likeButton.setBackground(primaryColor);
+            likeButton.setForeground(Color.WHITE);
         } else {
-            boolean success = issueController.likeIssue(userId, issueId, null); // Remove like
-            if (success) {
-                likeCount[0]--;
-                liked[0] = false;
-                likeButton.setText("Like 👍");
-                likeButton.setBackground(new Color(240, 240, 240));
-                likeButton.setForeground(new Color(60, 60, 60));
-                likeLabel.setText(likeCount[0] + " Likes");
-            } else {
-                JOptionPane.showMessageDialog(homeFrame, 
-                    "Failed to unlike issue. Please try again.", 
-                    "Error", JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    } catch (Exception ex) {
-        ex.printStackTrace();
-        JOptionPane.showMessageDialog(homeFrame, 
-            "Error: " + ex.getMessage(), 
-            "Like Error", JOptionPane.ERROR_MESSAGE);
-    }
-});
-
-dislikeButton.addActionListener(e -> {
-    try {
-        System.out.println("Dislike button clicked: userId=" + userId + ", issueId=" + issueId + ", username=" + this.username);
-        if (issueId <= 0 || userId <= 0) {
-            JOptionPane.showMessageDialog(homeFrame, 
-                "Invalid issue or user.", 
-                "Error", JOptionPane.ERROR_MESSAGE);
-            return;
+            likeButton.setBackground(new Color(240, 240, 240));
+            likeButton.setForeground(new Color(60, 60, 60));
         }
 
-        if (!disliked[0]) {
-            boolean success = issueController.likeIssue(userId, issueId, model.Like.ReactionType.DISLIKE);
-            if (success) {
-                dislikeCount[0]++;
-                disliked[0] = true;
-                dislikeButton.setText("Undislike 👎");
-                dislikeButton.setBackground(primaryColor);
-                dislikeButton.setForeground(Color.WHITE);
-                if (liked[0]) {
-                    likeCount[0]--;
-                    liked[0] = false;
-                    likeButton.setText("Like 👍");
-                    likeButton.setBackground(new Color(240, 240, 240));
-                    likeButton.setForeground(new Color(60, 60, 60));
-                    likeLabel.setText(likeCount[0] + " Likes");
-                }
-                dislikeLabel.setText(dislikeCount[0] + " Dislikes");
-            } else {
-                JOptionPane.showMessageDialog(homeFrame, 
-                    "Failed to dislike issue. You may have already disliked it.", 
-                    "Notice", JOptionPane.INFORMATION_MESSAGE);
-            }
+        if (disliked[0]) {
+            dislikeButton.setText("Undislike 👎");
+            dislikeButton.setBackground(primaryColor);
+            dislikeButton.setForeground(Color.WHITE);
         } else {
-            boolean success = issueController.likeIssue(userId, issueId, null); // Remove dislike
-            if (success) {
-                dislikeCount[0]--;
-                disliked[0] = false;
-                dislikeButton.setText("Dislike 👎");
-                dislikeButton.setBackground(new Color(240, 240, 240));
-                dislikeButton.setForeground(new Color(60, 60, 60));
-                dislikeLabel.setText(dislikeCount[0] + " Dislikes");
-            } else {
-                JOptionPane.showMessageDialog(homeFrame, 
-                    "Failed to remove dislike. Please try again.", 
-                    "Error", JOptionPane.ERROR_MESSAGE);
-            }
+            dislikeButton.setBackground(new Color(240, 240, 240));
+            dislikeButton.setForeground(new Color(60, 60, 60));
         }
-    } catch (Exception ex) {
-        ex.printStackTrace();
-        JOptionPane.showMessageDialog(homeFrame, 
-            "Error: " + ex.getMessage(), 
-            "Dislike Error", JOptionPane.ERROR_MESSAGE);
-    }
-});
 
-reportButton.addActionListener(e -> {
-    System.out.println("Report button clicked: userId=" + userId + ", issueId=" + issueId + ", username=" + this.username);
-    if (issueId <= 0 || userId <= 0) {
-        JOptionPane.showMessageDialog(homeFrame, 
-            "Invalid issue or user.", 
-            "Error", JOptionPane.ERROR_MESSAGE);
-        return;
-    }
-    if (reportController.hasUserReportedIssue(userId, issueId)) {
-        JOptionPane.showMessageDialog(homeFrame, 
-            "You have already reported this issue.", 
-            "Notice", JOptionPane.INFORMATION_MESSAGE);
-        return;
-    }
-    showReportDialog(issueId, null);
-});
+        reportButton.setBackground(new Color(240, 240, 240));
+        reportButton.setForeground(new Color(60, 60, 60));
+        reportButton.setFont(new Font("Arial", Font.PLAIN, 12));
 
-buttonPanel.add(likeButton);
-buttonPanel.add(likeLabel);
-buttonPanel.add(Box.createRigidArea(new Dimension(10, 0)));
-buttonPanel.add(dislikeButton);
-buttonPanel.add(dislikeLabel);
-buttonPanel.add(Box.createRigidArea(new Dimension(10, 0)));
-buttonPanel.add(reportButton);
+        likeButton.addActionListener(e -> {
+            try {
+                System.out.println("Like button clicked: userId=" + userId + ", issueId=" + issueId + ", username=" + this.username);
+                if (issueId <= 0 || userId <= 0) {
+                    JOptionPane.showMessageDialog(homeFrame, 
+                        "Invalid issue or user.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                if (!liked[0]) {
+                    boolean success = issueController.likeIssue(userId, issueId, model.Like.ReactionType.LIKE);
+                    if (success) {
+                        likeCount[0]++;
+                        liked[0] = true;
+                        likeButton.setText("Unlike 👍");
+                        likeButton.setBackground(primaryColor);
+                        likeButton.setForeground(Color.WHITE);
+                        if (disliked[0]) {
+                            dislikeCount[0]--;
+                            disliked[0] = false;
+                            dislikeButton.setText("Dislike 👎");
+                            dislikeButton.setBackground(new Color(240, 240, 240));
+                            dislikeButton.setForeground(new Color(60, 60, 60));
+                            dislikeLabel.setText(dislikeCount[0] + " Dislikes");
+                        }
+                        likeLabel.setText(likeCount[0] + " Likes");
+                    } else {
+                        JOptionPane.showMessageDialog(homeFrame, 
+                            "Failed to like issue. You may have already liked it.", 
+                            "Notice", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } else {
+                    boolean success = issueController.likeIssue(userId, issueId, null);
+                    if (success) {
+                        likeCount[0]--;
+                        liked[0] = false;
+                        likeButton.setText("Like 👍");
+                        likeButton.setBackground(new Color(240, 240, 240));
+                        likeButton.setForeground(new Color(60, 60, 60));
+                        likeLabel.setText(likeCount[0] + " Likes");
+                    } else {
+                        JOptionPane.showMessageDialog(homeFrame, 
+                            "Failed to unlike issue. Please try again.", 
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(homeFrame, 
+                    "Error: " + ex.getMessage(), 
+                    "Like Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        dislikeButton.addActionListener(e -> {
+            try {
+                System.out.println("Dislike button clicked: userId=" + userId + ", issueId=" + issueId + ", username=" + this.username);
+                if (issueId <= 0 || userId <= 0) {
+                    JOptionPane.showMessageDialog(homeFrame, 
+                        "Invalid issue or user.", 
+                        "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                if (!disliked[0]) {
+                    boolean success = issueController.likeIssue(userId, issueId, model.Like.ReactionType.DISLIKE);
+                    if (success) {
+                        dislikeCount[0]++;
+                        disliked[0] = true;
+                        dislikeButton.setText("Undislike 👎");
+                        dislikeButton.setBackground(primaryColor);
+                        dislikeButton.setForeground(Color.WHITE);
+                        if (liked[0]) {
+                            likeCount[0]--;
+                            liked[0] = false;
+                            likeButton.setText("Like 👍");
+                            likeButton.setBackground(new Color(240, 240, 240));
+                            likeButton.setForeground(new Color(60, 60, 60));
+                            likeLabel.setText(likeCount[0] + " Likes");
+                        }
+                        dislikeLabel.setText(dislikeCount[0] + " Dislikes");
+                    } else {
+                        JOptionPane.showMessageDialog(homeFrame, 
+                            "Failed to dislike issue. You may have already disliked it.", 
+                            "Notice", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } else {
+                    boolean success = issueController.likeIssue(userId, issueId, null);
+                    if (success) {
+                        dislikeCount[0]--;
+                        disliked[0] = false;
+                        dislikeButton.setText("Dislike 👎");
+                        dislikeButton.setBackground(new Color(240, 240, 240));
+                        dislikeButton.setForeground(new Color(60, 60, 60));
+                        dislikeLabel.setText(dislikeCount[0] + " Dislikes");
+                    } else {
+                        JOptionPane.showMessageDialog(homeFrame, 
+                            "Failed to remove dislike. Please try again.", 
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(homeFrame, 
+                    "Error: " + ex.getMessage(), 
+                    "Dislike Error", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        reportButton.addActionListener(e -> {
+            System.out.println("Report button clicked: userId=" + userId + ", issueId=" + issueId + ", username=" + this.username);
+            if (issueId <= 0 || userId <= 0) {
+                JOptionPane.showMessageDialog(homeFrame, 
+                    "Invalid issue or user.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+            }
+            if (reportController.hasUserReportedIssue(userId, issueId)) {
+                JOptionPane.showMessageDialog(homeFrame, 
+                    "You have already reported this issue.", 
+                    "Notice", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            showReportDialog(issueId, null);
+        });
+
+        buttonPanel.add(likeButton);
+        buttonPanel.add(likeLabel);
+        buttonPanel.add(Box.createRigidArea(new Dimension(10, 0)));
+        buttonPanel.add(dislikeButton);
+        buttonPanel.add(dislikeLabel);
+        buttonPanel.add(Box.createRigidArea(new Dimension(10, 0)));
+        buttonPanel.add(reportButton);
+        
         JPanel commentSectionPanel = new JPanel();
         commentSectionPanel.setLayout(new BoxLayout(commentSectionPanel, BoxLayout.Y_AXIS));
         commentSectionPanel.setBackground(Color.WHITE);
@@ -739,15 +831,36 @@ buttonPanel.add(reportButton);
         postPanel.add(commentSectionPanel);
 
         return postPanel;
-     }
+    }
 
     private void extracted(String username, int issueId, JPanel commentSectionPanel, JTextField commentInput) {
         String commentText = commentInput.getText().trim();
         if (!commentText.isEmpty()) {
             Comment comment = new Comment();
-            comment.setId(issueId);
             comment.setContent(commentText);
-            
+            comment.setCreatedAt(new java.sql.Timestamp(System.currentTimeMillis()));
+    
+            Issue issue = issueController.getIssueById(issueId);
+            User user = userController.getUserById(userId);
+    
+            if (issue == null) {
+                System.err.println("Error: Issue not found for issueId=" + issueId);
+                JOptionPane.showMessageDialog(homeFrame, 
+                    "Cannot post comment: Issue not found.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (user == null) {
+                System.err.println("Error: User not found for userId=" + userId);
+                JOptionPane.showMessageDialog(homeFrame, 
+                    "Cannot post comment: User not found.", 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+    
+            comment.setIssue(issue);
+            comment.setUser(user);
+    
             boolean commentAdded = issueController.addComment(comment, userId);
             
             if (commentAdded) {
@@ -764,10 +877,52 @@ buttonPanel.add(reportButton);
                 
                 commentInput.setText("");
             } else {
+                System.err.println("Failed to add comment for issueId=" + issueId + ", userId=" + userId);
                 JOptionPane.showMessageDialog(homeFrame, 
                     "Failed to post comment. Please try again.", 
                     "Error", JOptionPane.ERROR_MESSAGE);
             }
+        }
+    }
+
+    private Set<Integer> shownNoticeIds = new HashSet<>();
+
+    private void checkNoticesImmediately() {
+        try {
+            List<Notice> notices = noticeController.getAllNotices();
+            if (notices == null || notices.isEmpty()) {
+                System.err.println("⚠️ Immediate check: NoticeController returned " + (notices == null ? "null" : "empty") + " notices");
+                return;
+            }
+            System.out.println("Immediate check: Fetched " + notices.size() + " notices");
+            List<Notice> newNotices = new ArrayList<>();
+            LocalDateTime latestTime = lastNoticeTime;
+            for (Notice notice : notices) {
+                LocalDateTime createdAt = notice.getCreatedAt();
+                if ("active".equals(notice.getStatus()) && createdAt != null && createdAt.isAfter(lastNoticeTime) && !shownNoticeIds.contains(notice.getId())) {
+                    newNotices.add(notice);
+                    if (createdAt.isAfter(latestTime)) {
+                        latestTime = createdAt;
+                    }
+                    System.out.println("✅ Immediate check: New notice detected: ID=" + notice.getId() + ", Title=" + notice.getTitle() + ", CreatedAt=" + createdAt);
+                } else {
+                    System.out.println("Immediate check: Notice skipped: ID=" + notice.getId() + ", Status=" + notice.getStatus() + ", CreatedAt=" + createdAt + ", lastNoticeTime=" + lastNoticeTime + ", AlreadyShown=" + shownNoticeIds.contains(notice.getId()));
+                }
+            }
+            if (!newNotices.isEmpty()) {
+                lastNoticeTime = latestTime;
+                newNotices.sort((n1, n2) -> n2.getCreatedAt().compareTo(n1.getCreatedAt()));
+                for (Notice notice : newNotices) {
+                    final Notice noticeToShow = notice;
+                    shownNoticeIds.add(notice.getId());
+                    SwingUtilities.invokeLater(() -> showNoticePopup(noticeToShow));
+                }
+            } else {
+                System.out.println("Immediate check: No new active notices found after " + lastNoticeTime);
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Error in immediate notice check: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
