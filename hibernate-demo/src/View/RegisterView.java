@@ -85,6 +85,7 @@ public class RegisterView {
         registerFrame.setVisible(true);
 
         // 🔐 Register Button Logic
+        // 🔐 Register Button Logic
         registerButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -114,19 +115,32 @@ public class RegisterView {
                     JOptionPane.showMessageDialog(registerFrame, "Password must be at least 6 characters!", "Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-              UserController userController = new UserController();
+
+                UserController userController = new UserController();
                 User user = new User(fullName, username, email, password);
-               boolean success = userController.registerUser(user);
 
-            
+                // Step 1: Send OTP
+                String otp = userController.sendRegistrationOTP(email);
+                if (otp == null) {
+                    JOptionPane.showMessageDialog(registerFrame, "Email already exists or error sending OTP!", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
 
+                // Step 2: Prompt for OTP
+                String inputOtp = JOptionPane.showInputDialog(registerFrame, "Enter the OTP sent to your email:");
+                if (inputOtp == null || inputOtp.trim().isEmpty()) {
+                    JOptionPane.showMessageDialog(registerFrame, "OTP is required!", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
 
+                // Step 3: Verify OTP and finalize registration
+                boolean success = userController.verifyRegistrationOTP(email, inputOtp, user);
                 if (success) {
                     JOptionPane.showMessageDialog(registerFrame, "Account created successfully! 🎉");
                     registerFrame.dispose();
                     new LoginView();
                 } else {
-                    JOptionPane.showMessageDialog(registerFrame, "Username or Email already exists!", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(registerFrame, "Invalid or expired OTP!", "Error", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });

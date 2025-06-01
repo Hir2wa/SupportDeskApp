@@ -25,8 +25,9 @@ public class EmailService {
         Message message = new MimeMessage(session);
         message.setFrom(new InternetAddress(senderEmail));
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipientEmail));
-        message.setSubject("Support Desk Password Reset OTP");
-        message.setText("Your OTP for password reset is: " + otp + "\nValid for 5 minutes.");
+        // Customize subject for registration vs. password reset
+        message.setSubject("Support Desk Registration OTP");
+        message.setText("Your OTP for account registration is: " + otp + "\nValid for 5 minutes.");
         Transport.send(message);
     }
 }

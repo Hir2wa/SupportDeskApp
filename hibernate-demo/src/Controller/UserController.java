@@ -16,7 +16,9 @@ import util.EmailService;
 import util.HibernateUtil;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -25,6 +27,23 @@ import org.mindrot.jbcrypt.BCrypt;
 public class UserController {
     private final SessionFactory sessionFactory;
     private static int currentLoggedInUserId = -1;
+
+
+// Temporary in-memory storage for OTPs
+private static final Map<String, OTPData> otpStorage = new HashMap<>();
+
+// Class to hold OTP data
+private static class OTPData {
+    String otp;
+    Date createdAt;
+
+    OTPData(String otp, Date createdAt) {
+        this.otp = otp;
+        this.createdAt = createdAt;
+    }
+}
+
+
 
     public UserController() {
         this.sessionFactory = HibernateUtil.getSessionFactory();
@@ -309,6 +328,93 @@ public class UserController {
         }
         return results;
     }
+
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+    // Send OTP for registration
+    public String sendRegistrationOTP(String email) {
+        try (Session session = sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            // Check if email already exists
+            User existingUser = session.createQuery("FROM User WHERE lower(email) = :email", User.class)
+                    .setParameter("email", email.trim().toLowerCase())
+                    .uniqueResult();
+            if (existingUser != null) {
+                System.out.println("❌ Email already registered: " + email);
+                tx.rollback();
+                return null; // Email already exists
+            }
+            tx.commit();
+            // Generate OTP and store in memory
+            String otp = generateOTP();
+            otpStorage.put(email.trim().toLowerCase(), new OTPData(otp, new Date()));
+            new EmailService().sendOTPEmail(email, otp);
+            System.out.println("✅ Registration OTP sent to " + email);
+            return otp; // Return for debugging
+        } catch (Exception e) {
+            System.out.println("⚠️ Error sending registration OTP: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    // Verify OTP for registration and finalize account creation
+    public boolean verifyRegistrationOTP(String email, String otp, User user) {
+        try (Session session = sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            OTPData otpData = otpStorage.get(email.trim().toLowerCase());
+            if (otpData == null) {
+                System.out.println("❌ No OTP found for email: " + email);
+                return false;
+            }
+            long diffInMillies = new Date().getTime() - otpData.createdAt.getTime();
+            long diffInMinutes = TimeUnit.MILLISECONDS.toMinutes(diffInMillies);
+            if (diffInMinutes > 5) {
+                System.out.println("❌ OTP expired for " + email);
+                otpStorage.remove(email.trim().toLowerCase());
+                return false;
+            }
+            if (!otp.trim().equals(otpData.otp)) {
+                System.out.println("❌ Invalid OTP for " + email + ": expected " + otpData.otp + ", got " + otp);
+                return false;
+            }
+            // OTP is valid, persist the user
+            user.setPassword(BCrypt.hashpw(user.getPassword(), BCrypt.gensalt()));
+            session.persist(user);
+            tx.commit();
+            otpStorage.remove(email.trim().toLowerCase()); // Clear OTP
+            System.out.println("✅ User registered after OTP verification: " + user.getUsername());
+            return true;
+        } catch (Exception e) {
+            System.out.println("⚠️ Error verifying registration OTP: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+
+
+
+
+
+
+
+
+    
 
     // 🔍 Search for issues by title, description, or ID (should move to IssueController)
     public ArrayList<Issue> searchIssues(String searchQuery) {

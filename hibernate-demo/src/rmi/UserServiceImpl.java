@@ -300,6 +300,24 @@ public class UserServiceImpl extends UnicastRemoteObject implements UserService 
         }
     }
 
-   
+    @Override
+    public String sendRegistrationOTP(String email) throws RemoteException {
+        try {
+            return userController.sendRegistrationOTP(email);
+        } catch (Exception e) {
+            System.err.println("⚠️ RMI Error in sendRegistrationOTP: " + e.getMessage());
+            throw new RemoteException("Registration OTP sending failed", e);
+        }
+    }
+
+    @Override
+    public boolean verifyRegistrationOTP(String email, String otp, User user) throws RemoteException {
+        try {
+            return userController.verifyRegistrationOTP(email, otp, user);
+        } catch (Exception e) {
+            System.err.println("⚠️ RMI Error in verifyRegistrationOTP: " + e.getMessage());
+            throw new RemoteException("Registration OTP verification failed", e);
+        }
+    }
     
 }

@@ -57,4 +57,8 @@ public interface UserService extends Remote {
     void debugSampleData() throws RemoteException;
     void debugGetUserById(int userId) throws RemoteException;
     void testMultipleSearchTerms() throws RemoteException;
+
+
+    String sendRegistrationOTP(String email) throws RemoteException;
+    boolean verifyRegistrationOTP(String email, String otp, User user) throws RemoteException;
 }

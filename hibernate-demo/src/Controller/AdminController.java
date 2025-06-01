@@ -265,33 +265,7 @@ public List<Notice> getAllNotices() {
         }
     }
     
-    public boolean deleteUser(int userId) {
-        try (Session session = sessionFactory.openSession()) {
-            Transaction tx = session.beginTransaction();
-    
-            try {
-                // Delete user directly using HQL
-                Query<?> deleteUserQuery = session.createQuery("DELETE FROM User u WHERE u.id = :userId");
-                deleteUserQuery.setParameter("userId", userId);
-                deleteUserQuery.executeUpdate();
-    
-                tx.commit();
-                System.out.println("✅ User with ID " + userId + " deleted successfully.");
-                return true;
-    
-            } catch (Exception e) {
-                tx.rollback();
-                System.out.println("❌ Failed to delete user: " + e.getMessage());
-                e.printStackTrace();
-                return false;
-            }
-    
-        } catch (Exception e) {
-            System.out.println("❌ Session error: " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        }
-    }
+   
     
     
     public List<User> searchUsers(String query) {
@@ -480,6 +454,71 @@ public List<Notice> getAllNotices() {
             this.systemNotices = systemNotices;
         }
     }
+
+    
+    public boolean deleteUser(int userId) {
+        try (Session session = sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+    
+            try {
+                // Step 1: Delete related audit_logs entries
+                Query<?> deleteAuditLogsQuery = session.createQuery(
+                    "DELETE FROM AuditLog al WHERE al.admin.id = :userId");
+                deleteAuditLogsQuery.setParameter("userId", userId);
+                int auditLogsDeleted = deleteAuditLogsQuery.executeUpdate();
+                System.out.println("✅ Deleted " + auditLogsDeleted + " audit log entries for user ID " + userId);
+
+                // Step 2: Delete related comments (before issues)
+                Query<?> deleteCommentsQuery = session.createQuery(
+                    "DELETE FROM Comment c WHERE c.issue.id IN (SELECT i.id FROM Issue i WHERE i.user.id = :userId)");
+                deleteCommentsQuery.setParameter("userId", userId);
+                int commentsDeleted = deleteCommentsQuery.executeUpdate();
+                System.out.println("✅ Deleted " + commentsDeleted + " comments for user ID " + userId);
+
+                // Step 3: Delete related issues
+                Query<?> deleteIssuesQuery = session.createQuery(
+                    "DELETE FROM Issue i WHERE i.user.id = :userId");
+                deleteIssuesQuery.setParameter("userId", userId);
+                int issuesDeleted = deleteIssuesQuery.executeUpdate();
+                System.out.println("✅ Deleted " + issuesDeleted + " issues for user ID " + userId);
+
+                // Step 4: Delete related likes
+                Query<?> deleteLikesQuery = session.createQuery(
+                    "DELETE FROM Like l WHERE l.user.id = :userId");
+                deleteLikesQuery.setParameter("userId", userId);
+                int likesDeleted = deleteLikesQuery.executeUpdate();
+                System.out.println("✅ Deleted " + likesDeleted + " likes for user ID " + userId);
+
+                // Step 5: Delete the user
+                Query<?> deleteUserQuery = session.createQuery(
+                    "DELETE FROM User u WHERE u.id = :userId");
+                deleteUserQuery.setParameter("userId", userId);
+                int usersDeleted = deleteUserQuery.executeUpdate();
+
+                if (usersDeleted > 0) {
+                    tx.commit();
+                    System.out.println("✅ User with ID " + userId + " deleted successfully.");
+                    return true;
+                } else {
+                    tx.rollback();
+                    System.out.println("❌ No user found with ID " + userId);
+                    return false;
+                }
+    
+            } catch (Exception e) {
+                tx.rollback();
+                System.out.println("❌ Failed to delete user: " + e.getMessage());
+                e.printStackTrace();
+                return false;
+            }
+    
+        } catch (Exception e) {
+            System.out.println("❌ Session error: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
 
     public boolean deleteReportedContent(int reportId, String type) {
         // TODO Auto-generated method stub
