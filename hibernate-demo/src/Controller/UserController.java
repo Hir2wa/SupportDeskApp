@@ -349,6 +349,7 @@ public User loginAndGetUser(String username, String password) {
     // Debugging methods
     public void debugSampleData() {
         try (Session session = sessionFactory.openSession()) {
+
             // Count users
             Query<Long> userCountQuery = session.createQuery("SELECT COUNT(*) FROM User", Long.class);
             long userCount = userCountQuery.uniqueResult();

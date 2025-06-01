@@ -2,6 +2,8 @@ package View;
 
 import Controller.UserController;
 import model.User;
+import rmi.RMIClient;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -12,11 +14,15 @@ import java.util.logging.Logger;
 public class LoginView {
     private static final Logger LOGGER = Logger.getLogger(LoginView.class.getName());
 
+
+    
+
     private JFrame loginFrame;
     private JTextField usernameField;
     private JPasswordField passwordField;
     private JButton loginButton, registerButton, forgotPasswordButton;
     private UserController userController;
+    private RMIClient rmiClient;
 
     public LoginView() {
         userController = new UserController();
@@ -30,6 +36,16 @@ public class LoginView {
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 30, 20, 30));
         mainPanel.setBackground(Color.WHITE);
+
+
+        rmiClient = RMIClient.getInstance();
+        
+        // Test connection on startup
+        if (!rmiClient.isConnected()) {
+           // showConnectionError();
+           System.out.println("Connection failed");
+            return;
+        }
 
         // Add Logo
         JLabel logoLabel = new JLabel();
@@ -46,7 +62,7 @@ public class LoginView {
             System.err.println("Failed to load logo. Ensure Assets/LogoSupportDesk.png is in src and copied to bin.");
         }
         logoLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        mainPanel.add(logoLabel);
+        mainPanel.add(logoLabel); 
         mainPanel.add(Box.createVerticalStrut(10));
 
         // Title Panel
