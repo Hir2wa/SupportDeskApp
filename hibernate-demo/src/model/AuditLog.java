@@ -36,6 +36,10 @@ public class AuditLog {
         this.targetType = targetType;
     }
 
+    public AuditLog(Object object, String string, Long userId, String string2) {
+        //TODO Auto-generated constructor stub
+    }
+
     // Lifecycle callback
     @PrePersist
     protected void onCreate() {

@@ -15,8 +15,11 @@ import org.hibernate.query.Query;
 import util.EmailService;
 import util.HibernateUtil;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
 import org.mindrot.jbcrypt.BCrypt;
 
 public class UserController {
@@ -45,49 +48,64 @@ public class UserController {
     // Send OTP for password reset
     public String sendPasswordResetOTP(String email) {
         try (Session session = sessionFactory.openSession()) {
-            User user = session.createQuery("FROM User WHERE email = :email", User.class)
-                    .setParameter("email", email)
+            Transaction tx = session.beginTransaction();
+            User user = session.createQuery("FROM User WHERE lower(email) = :email", User.class)
+                    .setParameter("email", email.trim().toLowerCase())
                     .uniqueResult();
             if (user == null) {
                 System.out.println("❌ User not found: " + email);
                 return null;
             }
             String otp = generateOTP();
+            user.setResetOtp(otp);
+            user.setOtpCreatedAt(new Date());
+            session.update(user);
+            
             new EmailService().sendOTPEmail(email, otp);
-
-            Transaction tx = session.beginTransaction();
+            
             AuditLog auditLog = new AuditLog(user, "Sent password reset OTP", user.getId(), "User");
             session.persist(auditLog);
             tx.commit();
-
+            
             System.out.println("✅ OTP sent to " + email);
-            return otp; // For simplicity; store in DB for production
+            return otp; // Return for logging/debugging, but we'll use DB for verification
         } catch (Exception e) {
             System.out.println("⚠️ Error sending OTP: " + e.getMessage());
             e.printStackTrace();
             return null;
         }
     }
-
-
-
-    public boolean resetPassword(String email, String otp, String newPassword, String storedOtp) {
+    
+    public boolean resetPassword(String email, String otp, String newPassword) {
         try (Session session = sessionFactory.openSession()) {
-            if (!otp.equals(storedOtp)) {
-                System.out.println("❌ Invalid OTP for " + email);
-                return false;
-            }
             Transaction tx = session.beginTransaction();
-            User user = session.createQuery("FROM User WHERE email = :email", User.class)
-                    .setParameter("email", email)
+            User user = session.createQuery("FROM User WHERE lower(email) = :email", User.class)
+                    .setParameter("email", email.trim().toLowerCase())
                     .uniqueResult();
             if (user == null) {
                 System.out.println("❌ User not found: " + email);
                 return false;
             }
+            if (user.getResetOtp() == null || user.getOtpCreatedAt() == null) {
+                System.out.println("❌ No OTP found for " + email);
+                return false;
+            }
+            long diffInMillies = new Date().getTime() - user.getOtpCreatedAt().getTime();
+            long diffInMinutes = TimeUnit.MILLISECONDS.toMinutes(diffInMillies);
+            if (diffInMinutes > 5) {
+                System.out.println("❌ OTP expired for " + email);
+                return false;
+            }
+            if (!otp.trim().equals(user.getResetOtp())) {
+                System.out.println("❌ Invalid OTP for " + email + ": expected " + user.getResetOtp() + ", got " + otp);
+                return false;
+            }
             user.setPassword(BCrypt.hashpw(newPassword, BCrypt.gensalt()));
+            user.setResetOtp(null);
+            user.setOtpCreatedAt(null);
             session.update(user);
-
+            session.flush();
+            System.out.println("Password updated for user: " + user.getUsername());
             AuditLog auditLog = new AuditLog(user, "Password reset", user.getId(), "User");
             session.persist(auditLog);
             tx.commit();
@@ -99,6 +117,9 @@ public class UserController {
             return false;
         }
     }
+
+
+
 
 
     // 🔐 Register a new user
@@ -121,31 +142,7 @@ public class UserController {
     // Replace the existing loginAndGetUser method in UserController.java with this fixed version:
 
 // 🔐 Authenticate user and return User object
-public User loginAndGetUser(String username, String password) {
-    try (Session session = sessionFactory.openSession()) {
-        Query<User> query = session.createQuery(
-            "FROM User WHERE username = :username", User.class);
-        query.setParameter("username", username);
-        User user = query.uniqueResult();
-        
-        if (user != null && BCrypt.checkpw(password, user.getPassword())) {
-            if (user.isBlocked()) {
-                System.out.println("❌ Login failed - User is blocked: " + username);
-                return null;
-            }
-            currentLoggedInUserId = user.getId();
-            System.out.println("✅ Login successful for user: " + username);
-            return user;
-        } else {
-            System.out.println("❌ Login failed for user: " + username);
-            return null;
-        }
-    } catch (Exception e) {
-        System.out.println("⚠️ Login error");
-        e.printStackTrace();
-        return null;
-    }
-}
+
 
     // Keep for backward compatibility
     public boolean loginUser(String username, String password) {
@@ -418,15 +415,53 @@ public User loginAndGetUser(String username, String password) {
     }
 
 
+    public User loginAndGetUser(String username, String password) {
+        try (Session session = sessionFactory.openSession()) {
+            Query<User> query = session.createQuery(
+                "FROM User WHERE lower(username) = :username", User.class);
+            query.setParameter("username", username.trim().toLowerCase());
+            User user = query.uniqueResult();
+            if (user == null) {
+                System.out.println("❌ No user found with username: " + username);
+                return null;
+            }
+            if (!BCrypt.checkpw(password, user.getPassword())) {
+                System.out.println("❌ Incorrect password for user: " + username);
+                return null;
+            }
+            if (user.isBlocked()) {
+                System.out.println("❌ Login failed - User is blocked: " + username);
+                return null;
+            }
+            currentLoggedInUserId = user.getId();
+            System.out.println("✅ Login successful for user: " + username + ", ID: " + user.getId());
+            return user;
+        } catch (Exception e) {
+            System.out.println("⚠️ Login error: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+    
     public User authenticate(String username, String password) {
         try (Session session = sessionFactory.openSession()) {
-            User user = session.createQuery("FROM User WHERE username = :username", User.class)
-                    .setParameter("username", username)
+            User user = session.createQuery("FROM User WHERE lower(username) = :username", User.class)
+                    .setParameter("username", username.trim().toLowerCase())
                     .uniqueResult();
-            if (user != null && BCrypt.checkpw(password, user.getPassword()) && !"BLOCKED".equals(user.getStatus())) {
-                return user;
+            if (user == null) {
+                System.out.println("❌ No user found with username: " + username);
+                return null;
             }
-            return null;
+            if (!BCrypt.checkpw(password, user.getPassword())) {
+                System.out.println("❌ Incorrect password for user: " + username);
+                return null;
+            }
+            if ("BLOCKED".equalsIgnoreCase(user.getStatus())) {
+                System.out.println("❌ Login failed - User status is BLOCKED: " + username);
+                return null;
+            }
+            System.out.println("✅ Authentication successful for user: " + username);
+            return user;
         } catch (Exception e) {
             System.err.println("⚠️ Error authenticating user: " + e.getMessage());
             e.printStackTrace();

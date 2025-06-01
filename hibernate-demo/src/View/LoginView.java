@@ -47,23 +47,7 @@ public class LoginView {
             return;
         }
 
-        // Add Logo
-        JLabel logoLabel = new JLabel();
-        URL logoUrl = getClass().getResource("/Assets/LogoSupportDesk.png");
-        System.out.println("Looking for logo at: " + (logoUrl != null ? logoUrl.toString() : "null")); // Debug
-        ImageIcon logoIcon = (logoUrl != null) ? new ImageIcon(logoUrl) : null;
-        if (logoIcon != null && logoIcon.getImage() != null && logoIcon.getImageLoadStatus() == MediaTracker.COMPLETE) {
-            Image img = logoIcon.getImage().getScaledInstance(150, 150, Image.SCALE_SMOOTH);
-            logoIcon = new ImageIcon(img);
-            logoLabel.setIcon(logoIcon);
-        } else {
-            logoLabel.setText("Logo not found - Check /Assets/LogoSupportDesk.png in src");
-            logoLabel.setForeground(Color.RED);
-            System.err.println("Failed to load logo. Ensure Assets/LogoSupportDesk.png is in src and copied to bin.");
-        }
-        logoLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        mainPanel.add(logoLabel); 
-        mainPanel.add(Box.createVerticalStrut(10));
+    
 
         // Title Panel
         JPanel titlePanel = new JPanel();
@@ -211,9 +195,13 @@ public class LoginView {
         });
 
         // Forgot Password Action (unchanged)
+
+//
+
         forgotPasswordButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                
                 String email = JOptionPane.showInputDialog(loginFrame, "Enter your email address:");
                 if (email == null || email.trim().isEmpty()) {
                     JOptionPane.showMessageDialog(loginFrame, "Email is required.", 
@@ -244,10 +232,10 @@ public class LoginView {
                             "Error", JOptionPane.ERROR_MESSAGE);
                         return;
                     }
-                    boolean success = userController.resetPassword(email, inputOtp, newPassword, otp);
+                    boolean success = userController.resetPassword(email, inputOtp, newPassword);
                     JOptionPane.showMessageDialog(loginFrame, 
                         success ? "Password reset successfully! Please log in." 
-                                : "Error resetting password. Invalid OTP or user not found.", 
+                                : "Error resetting password. Invalid OTP, expired OTP, or user not found.", 
                         success ? "Success" : "Error", 
                         success ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.ERROR_MESSAGE);
                 } catch (Exception ex) {
@@ -269,5 +257,28 @@ public class LoginView {
         gbc.gridx = 1;
         gbc.anchor = GridBagConstraints.LINE_START;
         panel.add(field, gbc);
+    }
+
+
+    public static void main(String[] args) {
+        UserController controller = new UserController();
+        // Register test user
+        User user = new User();
+        user.setUsername("testuser");
+        user.setEmail("testuser@example.com");
+        user.setPassword("password123");
+        user.setFullName("Test User");
+        user.setStatus("ACTIVE");
+        user.setBlocked(false);
+        user.setAdmin(false);
+        boolean success = controller.registerUser(user);
+        System.out.println("Registration success: " + success);
+        // Test login
+        User loggedInUser = controller.loginAndGetUser("testuser", "password123");
+        if (loggedInUser != null) {
+            System.out.println("Login successful! User: " + loggedInUser.getUsername() + ", ID: " + loggedInUser.getId());
+        } else {
+            System.out.println("Login failed for testuser");
+        }
     }
 }

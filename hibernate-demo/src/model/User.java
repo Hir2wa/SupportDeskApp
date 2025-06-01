@@ -1,5 +1,6 @@
 package model;
 
+import java.util.Date;
 import java.sql.Timestamp;
 
 import jakarta.persistence.*;
@@ -35,6 +36,11 @@ public class User {
     @Column(name = "is_blocked")
     private boolean isBlocked;
 
+    @Column(name = "reset_otp")
+    private String resetOtp;
+
+    @Column(name = "otp_created_at")
+    private Date otpCreatedAt; // java.util.Date
     // Constructors
     public User() {
         this.isAdmin = false; // Match database default
@@ -169,5 +175,21 @@ public class User {
         }
     }
 
+    // Getters and setters
+    public String getResetOtp() {
+        return resetOtp;
+    }
+
+    public void setResetOtp(String resetOtp) {
+        this.resetOtp = resetOtp;
+    }
+
+    public Date getOtpCreatedAt() {
+        return otpCreatedAt;
+    }
+
+    public void setOtpCreatedAt(Date otpCreatedAt) {
+        this.otpCreatedAt = otpCreatedAt;
+    }
  
 }

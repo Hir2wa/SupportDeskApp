@@ -86,15 +86,14 @@ public class UserServiceImpl extends UnicastRemoteObject implements UserService 
     }
     
     @Override
-    public boolean resetPassword(String email, String otp, String newPassword, String storedOtp) throws RemoteException {
+    public boolean resetPassword(String email, String otp, String newPassword) throws RemoteException {
         try {
-            return userController.resetPassword(email, otp, newPassword, storedOtp);
+            return userController.resetPassword(email, otp, newPassword);
         } catch (Exception e) {
             System.err.println("⚠️ RMI Error in resetPassword: " + e.getMessage());
             throw new RemoteException("Password reset failed", e);
         }
     }
-    
     @Override
     public String generateOTP() throws RemoteException {
         try {
@@ -300,4 +299,7 @@ public class UserServiceImpl extends UnicastRemoteObject implements UserService 
             throw new RemoteException("Test multiple search terms failed", e);
         }
     }
+
+   
+    
 }

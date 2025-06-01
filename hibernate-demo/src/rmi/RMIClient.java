@@ -194,11 +194,11 @@ public class RMIClient {
         return null;
     }
     
-    public boolean resetPassword(String email, String otp, String newPassword, String storedOtp) {
+    public boolean resetPassword(String email, String otp, String newPassword) {
         try {
             reconnectIfNeeded();
             if (userService != null) {
-                return userService.resetPassword(email, otp, newPassword, storedOtp);
+                return userService.resetPassword(email, otp, newPassword);
             }
         } catch (RemoteException e) {
             System.err.println("❌ RMI Error in resetPassword: " + e.getMessage());

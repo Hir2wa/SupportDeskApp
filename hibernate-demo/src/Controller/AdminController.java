@@ -2,6 +2,7 @@ package Controller;
 
 import model.User;
 import model.Report;
+import model.AuditLog;
 import model.Issue;
 import model.Notice;
 import org.hibernate.Session;
@@ -266,22 +267,32 @@ public List<Notice> getAllNotices() {
     
     public boolean deleteUser(int userId) {
         try (Session session = sessionFactory.openSession()) {
-            session.beginTransaction();
-            User user = session.get(User.class, userId);
-            if (user != null) {
-                session.remove(user);
-                session.getTransaction().commit();
-                System.out.println("✅ Deleted user: " + userId);
+            Transaction tx = session.beginTransaction();
+    
+            try {
+                // Delete user directly using HQL
+                Query<?> deleteUserQuery = session.createQuery("DELETE FROM User u WHERE u.id = :userId");
+                deleteUserQuery.setParameter("userId", userId);
+                deleteUserQuery.executeUpdate();
+    
+                tx.commit();
+                System.out.println("✅ User with ID " + userId + " deleted successfully.");
                 return true;
+    
+            } catch (Exception e) {
+                tx.rollback();
+                System.out.println("❌ Failed to delete user: " + e.getMessage());
+                e.printStackTrace();
+                return false;
             }
-            System.out.println("❌ User not found: " + userId);
-            return false;
+    
         } catch (Exception e) {
-            System.out.println("❌ Failed to delete user: " + e.getMessage());
+            System.out.println("❌ Session error: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
+    
     
     public List<User> searchUsers(String query) {
         try (Session session = sessionFactory.openSession()) {

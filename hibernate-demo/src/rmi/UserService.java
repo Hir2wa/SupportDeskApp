@@ -23,7 +23,8 @@ public interface UserService extends Remote {
     
     // Password reset methods
     String sendPasswordResetOTP(String email) throws RemoteException;
-    boolean resetPassword(String email, String otp, String newPassword, String storedOtp) throws RemoteException;
+  
+    public boolean resetPassword(String email, String otp, String newPassword) throws RemoteException;
     String generateOTP() throws RemoteException;
     
     // User management methods
