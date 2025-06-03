@@ -40,11 +40,11 @@ public class User {
     private String resetOtp;
 
     @Column(name = "otp_created_at")
-    private Date otpCreatedAt; // java.util.Date
-    // Constructors
+    private Date otpCreatedAt; 
+   
     public User() {
-        this.isAdmin = false; // Match database default
-        this.isBlocked = false; // Match database default
+        this.isAdmin = false; 
+        this.isBlocked = false;
     }
 
     public User(int id, String fullName, String username, String email, String password) {

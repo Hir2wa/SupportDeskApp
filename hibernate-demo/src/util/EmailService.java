@@ -13,8 +13,8 @@ public class EmailService {
         props.put("mail.smtp.host", "smtp.gmail.com");
         props.put("mail.smtp.port", "587");
 
-        String senderEmail = "halainfabrice@gmail.com"; // Replace with your email
-        String senderPassword = "bomt jdzu fgwd affw"; // Replace with Gmail App Password
+        String senderEmail = "halainfabrice@gmail.com"; 
+        String senderPassword = "bomt jdzu fgwd affw"; 
 
         Session session = Session.getInstance(props, new Authenticator() {
             protected PasswordAuthentication getPasswordAuthentication() {
@@ -25,7 +25,7 @@ public class EmailService {
         Message message = new MimeMessage(session);
         message.setFrom(new InternetAddress(senderEmail));
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipientEmail));
-        // Customize subject for registration vs. password reset
+       
         message.setSubject("Support Desk Registration OTP");
         message.setText("Your OTP for account registration is: " + otp + "\nValid for 5 minutes.");
         Transport.send(message);

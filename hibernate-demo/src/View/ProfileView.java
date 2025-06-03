@@ -189,7 +189,7 @@ public class ProfileView {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            ProfileView profileView = new ProfileView("John Doe", "john.doe@example.com", null, 10, 20, 30, 40, true);
+            ProfileView profileView = new ProfileView("..", "...", null, 10, 20, 30, 40, true);
             profileView.setVisible(true);
         });
     }

@@ -32,9 +32,9 @@ public class Report {
 
     @Column(name = "status", columnDefinition = "VARCHAR(50) DEFAULT 'pending'")
     private String status;
-    // Constructors
+    
     public Report() {
-        this.status = "pending"; // Match database default
+        this.status = "pending"; 
     }
 
     public Report(User reportedBy, Comment comment, Issue issue, String reason) {
